@@ -35,7 +35,7 @@ export default function Login() {
       <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-teal-900 p-12 text-white lg:flex">
         <div className="flex items-center gap-3">
           <img src="/favicon.svg" alt="" className="size-10" />
-          <span className="text-lg font-semibold">Control Bancario</span>
+          <span className="text-lg font-semibold">Control de Clientes</span>
         </div>
         <div className="relative z-10 max-w-md">
           <h2 className="text-3xl font-semibold leading-tight">
@@ -55,7 +55,7 @@ export default function Login() {
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <img src="/favicon.svg" alt="" className="size-10" />
-            <span className="text-lg font-semibold text-slate-900">Control Bancario</span>
+            <span className="text-lg font-semibold text-slate-900">Control de Clientes</span>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Iniciar sesión</h1>
           <p className="mt-1 text-sm text-slate-500">Usa el correo y la contraseña que te dio el administrador.</p>

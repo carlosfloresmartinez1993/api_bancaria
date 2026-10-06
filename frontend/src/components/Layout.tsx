@@ -28,8 +28,8 @@ function Navegacion({ onNavegar }: { onNavegar?: () => void }) {
       <div className="flex h-16 shrink-0 items-center gap-2.5 px-5">
         <img src="/favicon.svg" alt="" className="size-8" />
         <div className="leading-tight">
-          <p className="text-sm font-semibold text-white">Control Bancario</p>
-          <p className="text-xs text-teal-200/80">Ingresos y salidas</p>
+          <p className="text-sm font-semibold text-white">Integra</p>
+          <p className="text-xs text-teal-200/80">Control de Clientes</p>
         </div>
       </div>
 
@@ -120,7 +120,7 @@ export function Layout() {
           >
             <Icono nombre="menu" />
           </button>
-          <span className="text-sm font-semibold text-slate-900">{actual?.texto ?? "Control Bancario"}</span>
+          <span className="text-sm font-semibold text-slate-900">{actual?.texto ?? "Control de Clientes"}</span>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <Outlet />
