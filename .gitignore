@@ -1,0 +1,20 @@
+# Configuración local de editores y herramientas
+.idea/
+.vscode/
+.claude/
+
+# Secretos y datos locales (cada subproyecto tiene además su propio .gitignore)
+.env
+.env.local
+uploads/
+
+# Dependencias y artefactos
+.venv/
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Archivos temporales de Office
+~$*

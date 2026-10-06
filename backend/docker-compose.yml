@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: banco
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-banco}
+      POSTGRES_DB: banco
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banco -d banco"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://banco:${POSTGRES_PASSWORD:-banco}@db:5432/banco
+      UPLOAD_DIR: /app/uploads
+      # Un solo contenedor con un solo proceso: aquí puede correr el cierre diario.
+      SCHEDULER_ENABLED: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  uploads:
