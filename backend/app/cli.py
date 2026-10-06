@@ -54,15 +54,44 @@ def crear_admin(args: argparse.Namespace) -> int:
     return _crear_admin(args.correo, args.nombre, args.apellidos, password, origen="cli")
 
 
+def _restablecer_admin(correo: str, password: str) -> int:
+    """Asigna ADMIN_PASSWORD al usuario ADMIN_CORREO (y lo activa); si no existe, lo crea como admin."""
+    if not _validar_password(password):
+        return 1
+    with SessionLocal() as db:
+        usuario = db.scalar(select(Usuario).where(Usuario.correo == correo.lower()))
+        if usuario is None:
+            print(f"inicializar: {correo} no existe; se crea como administrador")
+        else:
+            usuario.password_hash = hash_password(password)
+            usuario.activo = True
+            registrar(db, usuario_id=None, entidad="Usuario", entidad_id=usuario.id,
+                      accion=AccionBitacora.CAMBIO_PASSWORD, detalle={"por": "ADMIN_RESTABLECER", "origen": "inicializar"})
+            db.commit()
+            print(f"inicializar: contraseña restablecida para {usuario.correo} (rol {usuario.rol})")
+            return 0
+    return _crear_admin(correo, os.environ.get("ADMIN_NOMBRE", "Administrador"),
+                        os.environ.get("ADMIN_APELLIDOS", "General"), password, origen="inicializar")
+
+
 def inicializar(_: argparse.Namespace) -> int:
     """Crea el primer administrador desde variables de entorno, solo si la base no tiene usuarios.
 
     Pensado para plataformas sin consola (p. ej. Render gratuito), donde se ejecuta al arrancar.
     Usa ADMIN_CORREO y ADMIN_PASSWORD (obligatorias) y ADMIN_NOMBRE / ADMIN_APELLIDOS (opcionales).
     Si ya hay usuarios no hace nada, así que es seguro ejecutarlo en cada arranque.
+
+    Con ADMIN_RESTABLECER=true, aunque ya haya usuarios, asigna ADMIN_PASSWORD a ADMIN_CORREO
+    (o lo crea como admin). Sirve para recuperar el acceso; después hay que quitar la variable.
     """
+    # strip(): los campos de Render admiten varias líneas y es fácil pegar un salto de línea o espacio al final.
     correo = os.environ.get("ADMIN_CORREO", "").strip()
-    password = os.environ.get("ADMIN_PASSWORD", "")
+    password = os.environ.get("ADMIN_PASSWORD", "").strip()
+    if os.environ.get("ADMIN_RESTABLECER", "").strip().lower() == "true":
+        if not correo or not password:
+            print("inicializar: ADMIN_RESTABLECER requiere ADMIN_CORREO y ADMIN_PASSWORD", file=sys.stderr)
+            return 1
+        return _restablecer_admin(correo, password)
     with SessionLocal() as db:
         if db.scalar(select(func.count()).select_from(Usuario)):
             print("inicializar: la base ya tiene usuarios; no se hace nada")
