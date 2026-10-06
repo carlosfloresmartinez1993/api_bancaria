@@ -41,6 +41,29 @@ Abre http://localhost:5173. En desarrollo, Vite redirige `/api` al backend en el
 
 Más detalles en [`backend/README.md`](backend/README.md) y [`frontend/README.md`](frontend/README.md).
 
+## Publicar en Render
+
+El repositorio incluye un [`Dockerfile`](Dockerfile) que compila el frontend y lo sirve junto con la API
+(la API en `/api`, la aplicación en `/`), y un Blueprint [`render.yaml`](render.yaml) que crea el servicio
+web y la base de datos PostgreSQL.
+
+1. Sube el repositorio a GitHub.
+2. En [Render](https://render.com): **New → Blueprint** y elige el repositorio.
+3. Render pedirá `ADMIN_CORREO` y `ADMIN_PASSWORD` (mínimo 10 caracteres, con letras y números):
+   con ellos se crea el primer administrador al arrancar. La `SECRET_KEY` se genera sola.
+4. Al terminar el despliegue, la aplicación queda en `https://control-bancario-XXXX.onrender.com`.
+
+Para una demostración con datos de prueba, cambia `SEED_DEMO` a `true` en el servicio
+**antes del primer arranque** (los datos solo se cargan si la base está vacía).
+
+Limitaciones del plan gratuito:
+
+- El servicio se duerme tras unos minutos sin uso; la primera visita tarda en despertarlo.
+- El disco no es persistente: **los PDFs y logos subidos se pierden** en cada despliegue o reinicio.
+- La base de datos gratuita tiene vigencia limitada; revisa las condiciones actuales de Render.
+- Por lo anterior, el cierre diario automático está desactivado (`SCHEDULER_ENABLED=false`);
+  se puede enviar a mano desde **Reportes → Cierre diario**.
+
 ## Seguridad
 
 - Nunca subas `backend/.env`: contiene la `SECRET_KEY` y la conexión a la base de datos.

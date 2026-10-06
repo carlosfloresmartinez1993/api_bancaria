@@ -1,0 +1,48 @@
+# Blueprint de Render: un servicio web (API + frontend) y una base de datos PostgreSQL.
+# En Render: New → Blueprint → elige este repositorio.
+services:
+  - type: web
+    name: control-bancario
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: control-bancario-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DOCS_ENABLED
+        value: "false"
+      - key: TIMEZONE
+        value: America/Tijuana
+      # Render pone un proxy delante: confiar en él para obtener la IP real (límite de intentos de login).
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      # El plan gratuito se duerme sin tráfico, así que el cierre automático de las 23:59 no es confiable.
+      - key: SCHEDULER_ENABLED
+        value: "false"
+      # Primer administrador: se crea al arrancar si la base no tiene usuarios. Render los pide al crear el Blueprint.
+      - key: ADMIN_CORREO
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_NOMBRE
+        value: Administrador
+      - key: ADMIN_APELLIDOS
+        value: General
+      # true = cargar los datos de prueba de app/seed.py (solo para demostraciones).
+      - key: SEED_DEMO
+        value: "false"
+
+databases:
+  - name: control-bancario-db
+    plan: free
+    databaseName: banco
+    user: banco

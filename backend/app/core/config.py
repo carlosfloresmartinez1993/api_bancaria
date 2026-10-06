@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,15 @@ class Settings(BaseSettings):
 
     # Base de datos (PostgreSQL con driver psycopg 3)
     DATABASE_URL: str = Field(examples=["postgresql+psycopg://usuario:password@localhost:5432/banco"])
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _driver_psycopg(cls, valor: str) -> str:
+        # Render, Heroku y otros entregan postgres:// o postgresql://; SQLAlchemy necesita el driver.
+        for prefijo in ("postgres://", "postgresql://"):
+            if valor.startswith(prefijo):
+                return "postgresql+psycopg://" + valor[len(prefijo):]
+        return valor
 
     # Seguridad
     SECRET_KEY: str = Field(min_length=32, description="Clave para firmar los JWT; generar con `openssl rand -hex 32`")
@@ -32,6 +41,9 @@ class Settings(BaseSettings):
     # Archivos (PDFs y logo de las empresas)
     UPLOAD_DIR: Path = Path("./uploads")
     MAX_UPLOAD_MB: int = Field(default=10, ge=1, le=100)
+
+    # Build del frontend (frontend/dist) que sirve app.servidor en producción
+    FRONTEND_DIR: Path = Path("./static")
 
     # Correo (cierre diario)
     SMTP_HOST: str | None = None
