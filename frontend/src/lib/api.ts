@@ -72,12 +72,14 @@ function mensajeDeError(status: number, cuerpo: unknown): string {
 }
 
 // ---------------------------------------------------------------- peticiones
-export type Query = Record<string, string | number | boolean | null | undefined>;
+/** Un arreglo se envía como parámetro repetido: ?terminal_id=a&terminal_id=b */
+export type Query = Record<string, string | number | boolean | null | undefined | string[]>;
 
 export function construirUrl(ruta: string, query?: Query): string {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(query ?? {})) {
-    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+    if (Array.isArray(v)) v.forEach((x) => params.append(k, x));
+    else if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
   }
   const qs = params.toString();
   return `${BASE}${ruta}${qs ? `?${qs}` : ""}`;

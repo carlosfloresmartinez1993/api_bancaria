@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { Icono } from "../components/Icono";
-import { SelectorEmpresa, SelectorTerminal, SelectorUsuario } from "../components/Selectores";
+import { SelectorEmpresa, SelectorMetodoPago, SelectorUsuario } from "../components/Selectores";
 import { useToast } from "../components/Toast";
 import { Aviso, Boton, Campo, Cargando, EncabezadoPagina, ErrorApi, Input, Select, Tabla, Tarjeta, Td, Th, Vacio } from "../components/ui";
 import { api, guardarBlob, type Query } from "../lib/api";
 import { cn } from "../lib/cn";
 import { dinero, entero, fecha, fechaHoraLocal, hoyISO, porcentaje, primerDiaMesISO } from "../lib/format";
+import { useProyectosCatalogo, useTerminalesCatalogo } from "../lib/queries";
 import { ACCIONES_BITACORA, type Reporte } from "../lib/types";
 
 // ------------------------------------------------------------------ catálogo
-type TipoParam = "fecha" | "empresa" | "terminal" | "usuario" | "anio" | "mes" | "texto" | "accion";
+type TipoParam = "fecha" | "usuario" | "anio" | "mes" | "texto" | "accion" | "empresa" | "metodo"
+  | "contenido" | "agrupar" | "factura";
 
 interface Param {
   nombre: string;
@@ -29,6 +31,8 @@ interface DefReporte {
   descripcion: string;
   soloAdmin?: boolean;
   params: Param[];
+  /** Muestra la selección de clientes y proyectos de la empresa elegida. */
+  alcance?: boolean;
 }
 
 const DESDE: Param = { nombre: "desde", etiqueta: "Desde", tipo: "fecha", inicial: primerDiaMesISO };
@@ -36,27 +40,26 @@ const HASTA: Param = { nombre: "hasta", etiqueta: "Hasta", tipo: "fecha", inicia
 const EMPRESA: Param = { nombre: "empresa_id", etiqueta: "Empresa", tipo: "empresa" };
 
 const REPORTES: DefReporte[] = [
-  { id: "saldos", titulo: "Saldos de empresas", descripcion: "Ingresos netos, salidas y saldo de cada empresa a una fecha.",
+  { id: "constructor", titulo: "Constructor de reportes",
+    descripcion: "Elige la empresa, sus clientes y proyectos, y cómo agrupar las entradas y salidas.", alcance: true,
+    params: [EMPRESA, DESDE, HASTA,
+      { nombre: "contenido", etiqueta: "Mostrar", tipo: "contenido", inicial: () => "ambos" },
+      { nombre: "agrupar", etiqueta: "Agrupar por", tipo: "agrupar", inicial: () => "proyecto" },
+      { nombre: "metodo_pago_id", etiqueta: "Método de pago", tipo: "metodo" },
+      { nombre: "requiere_factura", etiqueta: "Factura", tipo: "factura" },
+      { nombre: "texto", etiqueta: "Buscar en destino / observaciones", tipo: "texto" }] },
+  { id: "saldos", titulo: "Saldos de empresas", descripcion: "Entradas, comisiones, salidas y saldo de cada empresa a una fecha.",
     params: [{ nombre: "al_dia", etiqueta: "Al día", tipo: "fecha", inicial: hoyISO }] },
-  { id: "estado-cuenta", titulo: "Estado de cuenta", descripcion: "Ingresos y salidas de una empresa con saldo corrido.",
-    params: [{ ...EMPRESA, requerido: true }, { ...DESDE, requerido: true }, { ...HASTA, requerido: true }] },
-  { id: "movimientos-por-empresa", titulo: "Movimientos por empresa", descripcion: "Detalle de cada movimiento de una empresa.",
-    params: [{ ...EMPRESA, requerido: true }, DESDE, HASTA] },
-  { id: "movimientos-por-terminal", titulo: "Movimientos por terminal", descripcion: "Detalle de cada movimiento de una terminal.",
-    params: [{ nombre: "terminal_id", etiqueta: "Terminal", tipo: "terminal", requerido: true }, DESDE, HASTA] },
-  { id: "conciliacion-diaria", titulo: "Conciliación diaria", descripcion: "Totales de un día por terminal, para cuadrar contra el banco.",
-    params: [{ nombre: "fecha", etiqueta: "Fecha", tipo: "fecha", requerido: true, inicial: hoyISO }, EMPRESA,
-      { nombre: "terminal_id", etiqueta: "Terminal", tipo: "terminal" }] },
-  { id: "salidas", titulo: "Historial de salidas", descripcion: "Salidas registradas, con búsqueda por destino.",
-    params: [EMPRESA, DESDE, HASTA, { nombre: "texto", etiqueta: "Destino contiene", tipo: "texto" }] },
-  { id: "totales-por-empresa", titulo: "Totales por empresa", descripcion: "Bruto, comisión y neto acumulados por empresa.", soloAdmin: true,
-    params: [EMPRESA, DESDE, HASTA] },
-  { id: "resumen-mensual", titulo: "Resumen mensual / anual", descripcion: "Ingresos, comisiones, salidas y flujo neto por mes.", soloAdmin: true,
+  { id: "estado-cuenta", titulo: "Estado de cuenta", descripcion: "Entradas y salidas en orden con saldo corrido.", alcance: true,
+    params: [{ ...EMPRESA, requerido: true }, { ...DESDE, requerido: true }, { ...HASTA, requerido: true },
+      { nombre: "metodo_pago_id", etiqueta: "Método de pago", tipo: "metodo" }] },
+  { id: "conciliacion-diaria", titulo: "Conciliación diaria", descripcion: "Totales de un día por cliente y proyecto, para cuadrar contra el banco.",
+    alcance: true,
+    params: [{ nombre: "fecha", etiqueta: "Fecha", tipo: "fecha", requerido: true, inicial: hoyISO }, EMPRESA] },
+  { id: "resumen-mensual", titulo: "Resumen mensual / anual", descripcion: "Entradas, comisiones, salidas y flujo neto por mes.", soloAdmin: true,
     params: [{ nombre: "anio", etiqueta: "Año", tipo: "anio", requerido: true, inicial: () => hoyISO().slice(0, 4) },
       { nombre: "mes", etiqueta: "Mes", tipo: "mes" }, EMPRESA] },
-  { id: "comisiones-por-terminal", titulo: "Comisiones por terminal", descripcion: "Cuánto cobró el banco en cada terminal.", soloAdmin: true,
-    params: [EMPRESA, DESDE, HASTA] },
-  { id: "auditoria-captura", titulo: "Auditoría de captura", descripcion: "Movimientos y correcciones de cada contador.", soloAdmin: true,
+  { id: "auditoria-captura", titulo: "Auditoría de captura", descripcion: "Entradas y correcciones de cada contador.", soloAdmin: true,
     params: [{ nombre: "usuario_id", etiqueta: "Contador", tipo: "usuario" }, DESDE, HASTA] },
   { id: "bitacora", titulo: "Bitácora de auditoría", descripcion: "Cambios registrados en el sistema (solo lectura).", soloAdmin: true,
     params: [{ nombre: "accion", etiqueta: "Acción", tipo: "accion" }, { nombre: "usuario_id", etiqueta: "Usuario", tipo: "usuario" },
@@ -131,7 +134,8 @@ function TablaReporte({ reporte }: { reporte: Reporte }) {
               const v = reporte.totales?.[c.clave];
               const { texto, negativo } = v === undefined ? { texto: "", negativo: false } : celda(c.clave, v);
               return (
-                <Td key={c.clave} derecha={numericas.has(c.clave)} className={cn("text-slate-900", negativo && "text-rose-600")}>
+                <Td key={c.clave} derecha={numericas.has(c.clave)}
+                  className={cn("whitespace-nowrap text-slate-900", negativo && "text-rose-600")}>
                   {i === 0 && v === undefined ? "Total" : texto}
                 </Td>
               );
@@ -144,12 +148,9 @@ function TablaReporte({ reporte }: { reporte: Reporte }) {
 }
 
 // ------------------------------------------------------------------ parámetros
-function ControlParam({ p, valor, valores, onCambiar }: {
-  p: Param;
-  valor: string;
-  valores: Record<string, string>;
-  onCambiar: (v: string) => void;
-}) {
+type Valores = Record<string, string | string[]>;
+
+function ControlParam({ p, valor, onCambiar }: { p: Param; valor: string; onCambiar: (v: string) => void }) {
   return (
     <Campo etiqueta={p.etiqueta} requerido={p.requerido}>
       {(id) => {
@@ -158,11 +159,10 @@ function ControlParam({ p, valor, valores, onCambiar }: {
             return <Input id={id} type="date" value={valor} onChange={(e) => onCambiar(e.target.value)} />;
           case "empresa":
             return <SelectorEmpresa id={id} valor={valor} onCambiar={onCambiar} vacio={p.requerido ? undefined : "Todas"} />;
-          case "terminal":
-            return <SelectorTerminal id={id} valor={valor} onCambiar={onCambiar} empresaId={valores.empresa_id}
-              vacio={p.requerido ? undefined : "Todas"} />;
           case "usuario":
             return <SelectorUsuario id={id} valor={valor} onCambiar={onCambiar} vacio="Todos" />;
+          case "metodo":
+            return <SelectorMetodoPago id={id} valor={valor} onCambiar={onCambiar} vacio="Todos" />;
           case "anio":
             return <Input id={id} type="number" min={2000} max={2100} value={valor} onChange={(e) => onCambiar(e.target.value)} />;
           case "mes":
@@ -179,6 +179,32 @@ function ControlParam({ p, valor, valores, onCambiar }: {
                 {ACCIONES_BITACORA.map((a) => <option key={a} value={a}>{a.replaceAll("_", " ").toLowerCase()}</option>)}
               </Select>
             );
+          case "contenido":
+            return (
+              <Select id={id} value={valor} onChange={(e) => onCambiar(e.target.value)}>
+                <option value="ambos">Entradas y salidas</option>
+                <option value="entradas">Solo entradas</option>
+                <option value="salidas">Solo salidas</option>
+              </Select>
+            );
+          case "agrupar":
+            return (
+              <Select id={id} value={valor} onChange={(e) => onCambiar(e.target.value)}>
+                <option value="empresa">Empresa</option>
+                <option value="cliente">Cliente</option>
+                <option value="proyecto">Proyecto</option>
+                <option value="metodo_pago">Método de pago</option>
+                <option value="detalle">Sin agrupar (detalle)</option>
+              </Select>
+            );
+          case "factura":
+            return (
+              <Select id={id} value={valor} onChange={(e) => onCambiar(e.target.value)}>
+                <option value="">Todas</option>
+                <option value="true">Solo con factura</option>
+                <option value="false">Solo sin factura</option>
+              </Select>
+            );
           case "texto":
             return <Input id={id} maxLength={100} value={valor} onChange={(e) => onCambiar(e.target.value)} />;
         }
@@ -187,8 +213,84 @@ function ControlParam({ p, valor, valores, onCambiar }: {
   );
 }
 
-function valoresIniciales(def: DefReporte, url: URLSearchParams): Record<string, string> {
-  return Object.fromEntries(def.params.map((p) => [p.nombre, url.get(p.nombre) ?? p.inicial?.() ?? ""]));
+/** Lista de casillas con opción "Todos". Lista vacía = todos. */
+function Casillas({ titulo, opciones, elegidos, onCambiar, vacio }: {
+  titulo: string;
+  opciones: { id: string; texto: ReactNode }[];
+  elegidos: string[];
+  onCambiar: (ids: string[]) => void;
+  vacio: string;
+}) {
+  const todos = elegidos.length === 0;
+  const alternar = (id: string) =>
+    onCambiar(elegidos.includes(id) ? elegidos.filter((x) => x !== id) : [...elegidos, id]);
+  return (
+    <fieldset className="min-w-0">
+      <legend className="mb-1 text-sm font-medium text-slate-700">{titulo}</legend>
+      <div className="max-h-52 overflow-y-auto rounded-lg p-2 ring-1 ring-slate-200">
+        {opciones.length === 0 ? (
+          <p className="px-1 py-2 text-xs text-slate-500">{vacio}</p>
+        ) : (
+          <>
+            <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm font-medium hover:bg-slate-50">
+              <input type="checkbox" className="size-4 accent-teal-700" checked={todos} onChange={() => onCambiar([])} />
+              Todos
+            </label>
+            {opciones.map((o) => (
+              <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-slate-50">
+                <input type="checkbox" className="size-4 accent-teal-700" checked={!todos && elegidos.includes(o.id)}
+                  onChange={() => alternar(o.id)} />
+                {o.texto}
+              </label>
+            ))}
+          </>
+        )}
+      </div>
+    </fieldset>
+  );
+}
+
+/** Clientes y proyectos de la empresa elegida. Si se eligen clientes, solo se ofrecen sus proyectos. */
+function SelectorAlcance({ empresaId, clientes, proyectos, onCambiar }: {
+  empresaId: string;
+  clientes: string[];
+  proyectos: string[];
+  onCambiar: (c: { clientes: string[]; proyectos: string[] }) => void;
+}) {
+  const { data: listaClientes } = useTerminalesCatalogo(empresaId || undefined);
+  const { data: listaProyectos } = useProyectosCatalogo({ empresaId: empresaId || undefined });
+  if (!empresaId) {
+    return <p className="text-sm text-slate-500 sm:col-span-2">Elige una empresa para seleccionar sus clientes y proyectos.</p>;
+  }
+  const nombreCliente = new Map((listaClientes ?? []).map((c) => [c.id, c.identificador_terminal]));
+  const visibles = (listaProyectos ?? []).filter((p) => clientes.length === 0 || clientes.includes(p.terminal_id));
+  return (
+    <>
+      <Casillas titulo="Clientes" vacio="La empresa no tiene clientes." elegidos={clientes}
+        opciones={(listaClientes ?? []).map((c) => ({ id: c.id, texto: c.identificador_terminal }))}
+        onCambiar={(ids) => onCambiar({
+          clientes: ids,
+          // Al cambiar los clientes se descartan proyectos que ya no pertenecen a la selección.
+          proyectos: proyectos.filter((pid) => ids.length === 0
+            || ids.includes((listaProyectos ?? []).find((p) => p.id === pid)?.terminal_id ?? "")),
+        })} />
+      <Casillas titulo="Proyectos" vacio="No hay proyectos en la selección." elegidos={proyectos}
+        opciones={visibles.map((p) => ({
+          id: p.id,
+          texto: <span>{p.nombre} <span className="text-xs text-slate-500">· {nombreCliente.get(p.terminal_id)} · {porcentaje(p.porcentaje_vigente)}</span></span>,
+        }))}
+        onCambiar={(ids) => onCambiar({ clientes, proyectos: ids })} />
+    </>
+  );
+}
+
+function valoresIniciales(def: DefReporte, url: URLSearchParams): Valores {
+  const v: Valores = Object.fromEntries(def.params.map((p) => [p.nombre, url.get(p.nombre) ?? p.inicial?.() ?? ""]));
+  if (def.alcance) {
+    v.terminal_id = url.getAll("terminal_id");
+    v.proyecto_id = url.getAll("proyecto_id");
+  }
+  return v;
 }
 
 function EnviarCierre({ dia }: { dia: string }) {
@@ -235,7 +337,7 @@ export default function Reportes() {
   const disponibles = REPORTES.filter((r) => esAdmin || !r.soloAdmin);
   const def = disponibles.find((r) => r.id === url.get("r")) ?? disponibles[0];
 
-  const [valores, setValores] = useState(() => valoresIniciales(def, url));
+  const [valores, setValores] = useState<Valores>(() => valoresIniciales(def, url));
   const [defActual, setDefActual] = useState(def.id);
   const [descargando, setDescargando] = useState<string | null>(null);
 
@@ -245,11 +347,14 @@ export default function Reportes() {
     setValores(valoresIniciales(def, new URLSearchParams()));
   }
 
-  const faltan = def.params.filter((p) => p.requerido && !valores[p.nombre]);
+  const texto = (k: string) => (typeof valores[k] === "string" ? (valores[k] as string) : "");
+  const lista = (k: string) => (Array.isArray(valores[k]) ? (valores[k] as string[]) : []);
+  const faltan = def.params.filter((p) => p.requerido && !texto(p.nombre));
   const query: Query = { ...valores };
+  if (texto("metodo_pago_id")) query.metodo_pago_id = [texto("metodo_pago_id")];
 
   const reporte = useQuery({
-    queryKey: ["reporte", def.id, valores],
+    queryKey: ["reporte", def.id, query],
     queryFn: () => api.get<Reporte>(`/reportes/${def.id}`, query),
     enabled: faltan.length === 0,
     placeholderData: keepPreviousData,
@@ -257,6 +362,15 @@ export default function Reportes() {
 
   function elegir(id: string) {
     setUrl({ r: id }, { replace: true });
+  }
+
+  function cambiar(nombre: string, v: string) {
+    setValores((s) => ({
+      ...s,
+      [nombre]: v,
+      // Cambiar de empresa limpia la selección de clientes y proyectos.
+      ...(nombre === "empresa_id" && def.alcance ? { terminal_id: [], proyecto_id: [] } : {}),
+    }));
   }
 
   async function descargar(formato: string) {
@@ -275,7 +389,7 @@ export default function Reportes() {
     <>
       <EncabezadoPagina titulo="Reportes" descripcion="Consulta en pantalla o descarga en Excel, PDF o CSV." />
 
-      <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[15rem_1fr]">
         <nav className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:gap-1 lg:overflow-visible">
           {disponibles.map((r) => (
             <button
@@ -299,10 +413,15 @@ export default function Reportes() {
             <p className="mt-0.5 text-sm text-slate-500">{def.descripcion}</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {def.params.map((p) => (
-                <ControlParam key={p.nombre} p={p} valor={valores[p.nombre] ?? ""} valores={valores}
-                  onCambiar={(v) => setValores((s) => ({ ...s, [p.nombre]: v, ...(p.tipo === "empresa" && "terminal_id" in s ? { terminal_id: "" } : {}) }))} />
+                <ControlParam key={p.nombre} p={p} valor={texto(p.nombre)} onCambiar={(v) => cambiar(p.nombre, v)} />
               ))}
             </div>
+            {def.alcance && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <SelectorAlcance empresaId={texto("empresa_id")} clientes={lista("terminal_id")} proyectos={lista("proyecto_id")}
+                  onCambiar={({ clientes, proyectos }) => setValores((s) => ({ ...s, terminal_id: clientes, proyecto_id: proyectos }))} />
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
               <div className="flex flex-wrap gap-2">
                 {FORMATOS.map((f) => (
@@ -312,7 +431,7 @@ export default function Reportes() {
                   </Boton>
                 ))}
               </div>
-              {def.id === "cierre-diario" && <EnviarCierre dia={valores.fecha} />}
+              {def.id === "cierre-diario" && <EnviarCierre dia={texto("fecha")} />}
             </div>
           </Tarjeta>
 
@@ -329,6 +448,11 @@ export default function Reportes() {
                       <p className="text-xs text-slate-500">{reporte.data.filas.length} fila(s)</p>
                     </div>
                     <TablaReporte reporte={reporte.data} />
+                    {reporte.data.elaborado_por && (
+                      <p className="border-t border-slate-100 px-5 py-3 text-xs italic text-slate-500">
+                        Elaborado por: {reporte.data.elaborado_por} — {fechaHoraLocal(new Date().toISOString())}
+                      </p>
+                    )}
                   </>
                 )}
               </Tarjeta>

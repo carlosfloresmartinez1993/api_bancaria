@@ -4,9 +4,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { EmpresaForm } from "../components/formularios/EmpresaForm";
 import { Icono } from "../components/Icono";
-import { LogoEmpresa } from "../components/LogoEmpresa";
 import { SelectorUsuario } from "../components/Selectores";
-import { Boton, Campo, Cargando, EncabezadoPagina, ErrorApi, Input, Paginacion, Tarjeta, Vacio } from "../components/ui";
+import { Boton, Campo, Cargando, EncabezadoPagina, ErrorApi, Iniciales, Input, Paginacion, Tarjeta, Vacio } from "../components/ui";
 import { api } from "../lib/api";
 import { fecha } from "../lib/format";
 import { useFiltros } from "../lib/filtros";
@@ -76,20 +75,20 @@ export default function Empresas() {
               <Link key={e.id} to={`/empresas/${e.id}`}
                 className="group rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md hover:ring-teal-300">
                 <div className="flex items-start gap-3">
-                  <LogoEmpresa empresa={e} className="size-12" />
+                  <Iniciales nombre={e.nombre} className="size-12" />
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-slate-900 group-hover:text-teal-700">{e.nombre}</p>
-                    <p className="truncate text-sm text-slate-500">{e.csf}</p>
+                    <p className="truncate text-sm text-slate-500">{e.csf ?? "Sin CSF"}</p>
                   </div>
                 </div>
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <dt className="text-xs text-slate-500">Banco</dt>
-                    <dd className="font-medium text-slate-700">{e.banco}</dd>
+                    <dd className="font-medium text-slate-700">{e.banco ?? "—"}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-slate-500">Cuenta</dt>
-                    <dd className="font-medium tabular-nums text-slate-700">{e.numero_cuenta}</dd>
+                    <dt className="text-xs text-slate-500">Clientes</dt>
+                    <dd className="font-medium tabular-nums text-slate-700">{e.num_clientes}</dd>
                   </div>
                   {esAdmin && (
                     <div>

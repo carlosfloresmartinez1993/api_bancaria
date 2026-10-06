@@ -33,7 +33,8 @@ export function EmpresaForm({ abierto, empresa, onCerrar }: { abierto: boolean; 
     if (abierto) {
       setDatos(
         empresa
-          ? { nombre: empresa.nombre, csf: empresa.csf, banco: empresa.banco, numero_cuenta: empresa.numero_cuenta, clabe: empresa.clabe ?? "" }
+          ? { nombre: empresa.nombre, csf: empresa.csf ?? "", banco: empresa.banco ?? "",
+              numero_cuenta: empresa.numero_cuenta ?? "", clabe: empresa.clabe ?? "" }
           : VACIO,
       );
       setPropietario("");
@@ -50,11 +51,12 @@ export function EmpresaForm({ abierto, empresa, onCerrar }: { abierto: boolean; 
     e.preventDefault();
     setEnviando(true);
     setError(null);
+    // Solo el nombre es obligatorio; los demás datos vacíos se guardan como nulos.
     const cuerpo = {
       nombre: datos.nombre.trim(),
-      csf: datos.csf.trim(),
-      banco: datos.banco.trim(),
-      numero_cuenta: datos.numero_cuenta.trim(),
+      csf: datos.csf.trim() || null,
+      banco: datos.banco.trim() || null,
+      numero_cuenta: datos.numero_cuenta.trim() || null,
       clabe: datos.clabe.trim() || null,
     };
     try {
@@ -85,15 +87,16 @@ export function EmpresaForm({ abierto, empresa, onCerrar }: { abierto: boolean; 
         <Campo etiqueta="Nombre" requerido>
           {(id) => <Input id={id} required maxLength={200} {...campo("nombre")} />}
         </Campo>
-        <Campo etiqueta="Constancia de situación fiscal (CSF)" requerido ayuda="RFC o identificador de la constancia.">
-          {(id) => <Input id={id} required maxLength={100} {...campo("csf")} />}
+        <p className="text-xs text-slate-500">Solo el nombre es obligatorio; el resto se puede completar después.</p>
+        <Campo etiqueta="Constancia de situación fiscal (CSF)" ayuda="RFC o identificador de la constancia.">
+          {(id) => <Input id={id} maxLength={100} {...campo("csf")} />}
         </Campo>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Campo etiqueta="Banco" requerido>
-            {(id) => <Input id={id} required maxLength={100} placeholder="Ej. BBVA" {...campo("banco")} />}
+          <Campo etiqueta="Banco">
+            {(id) => <Input id={id} maxLength={100} placeholder="Ej. BBVA" {...campo("banco")} />}
           </Campo>
-          <Campo etiqueta="Número de cuenta" requerido>
-            {(id) => <Input id={id} required maxLength={30} inputMode="numeric" {...campo("numero_cuenta")} />}
+          <Campo etiqueta="Número de cuenta">
+            {(id) => <Input id={id} maxLength={30} inputMode="numeric" {...campo("numero_cuenta")} />}
           </Campo>
         </div>
         <Campo etiqueta="CLABE" ayuda="18 dígitos (opcional).">

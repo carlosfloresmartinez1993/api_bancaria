@@ -1,34 +1,35 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, File, UploadFile, status
-from fastapi.responses import FileResponse
-from sqlalchemy import select
+from fastapi import APIRouter, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.api.deps import DB, Admin, PaginacionDep, UsuarioActual
 from app.api.utils import cambios_no_nulos, paginar
 from app.core.errors import Prohibido, ReglaNegocio
 from app.core.tiempo import hoy
-from app.models import AccionBitacora, Empresa, Rol, Usuario
+from app.models import AccionBitacora, Empresa, Rol, TerminalBancaria, Usuario
 from app.schemas.comun import Pagina
-from app.schemas.empresa import ArchivosEmpresa, EmpresaActualizar, EmpresaCrear, EmpresaOut, Reasignar, SaldoOut
-from app.services import archivos
+from app.schemas.empresa import EmpresaActualizar, EmpresaCrear, EmpresaOut, Reasignar, SaldoOut
 from app.services.acceso import obtener_empresa, solo_propias
-from app.services.archivos import CAMPO, TipoArchivo
 from app.services.bitacora import registrar
 from app.services.reportes import escapar_like
-from app.services.saldos import totales_empresa
+from app.services.saldos import totales
 
 router = APIRouter(prefix="/empresas", tags=["Empresas"])
 
 
-def a_salida(empresa: Empresa) -> EmpresaOut:
-    base = f"/empresas/{empresa.id}/archivos"
-    enlaces = {t.value: (f"{base}/{t.value}" if getattr(empresa, CAMPO[t]) else None) for t in TipoArchivo}
-    return EmpresaOut.model_validate(
-        {**{c: getattr(empresa, c) for c in EmpresaOut.model_fields if c != "archivos"},
-         "archivos": ArchivosEmpresa(**enlaces)}
-    )
+def _salidas(db: Session, empresas: list[Empresa]) -> list[EmpresaOut]:
+    """Agrega a cada empresa cuántos clientes (terminales) tiene."""
+    conteo = dict(
+        db.execute(
+            select(TerminalBancaria.empresa_id, func.count())
+            .where(TerminalBancaria.empresa_id.in_([e.id for e in empresas]))
+            .group_by(TerminalBancaria.empresa_id)
+        ).all()
+    ) if empresas else {}
+    return [EmpresaOut.model_validate(e).model_copy(update={"num_clientes": conteo.get(e.id, 0)}) for e in empresas]
 
 
 def _validar_propietario(db, usuario_id: uuid.UUID) -> Usuario:
@@ -36,6 +37,11 @@ def _validar_propietario(db, usuario_id: uuid.UUID) -> Usuario:
     if propietario is None or not propietario.activo:
         raise ReglaNegocio("El usuario indicado no existe o está inactivo")
     return propietario
+
+
+def _limpiar(datos: dict) -> dict:
+    """Los textos opcionales vacíos se guardan como NULL."""
+    return {k: (v.strip() or None) if isinstance(v, str) and k != "nombre" else v for k, v in datos.items()}
 
 
 @router.get("", response_model=Pagina[EmpresaOut])
@@ -48,7 +54,7 @@ def listar(db: DB, usuario: UsuarioActual, pag: PaginacionDep, q: str | None = N
     if usuario_id and usuario.es_admin:
         stmt = stmt.where(Empresa.usuario_id == usuario_id)
     pagina = paginar(db, stmt, pag.limit, pag.offset)
-    pagina["items"] = [a_salida(e) for e in pagina["items"]]
+    pagina["items"] = _salidas(db, pagina["items"])
     return pagina
 
 
@@ -60,31 +66,32 @@ def crear(datos: EmpresaCrear, db: DB, usuario: UsuarioActual):
         if not usuario.es_admin:
             raise Prohibido("Solo un administrador puede registrar empresas a nombre de otro usuario")
         propietario_id = _validar_propietario(db, datos.usuario_id).id
-    empresa = Empresa(**datos.model_dump(exclude={"usuario_id"}), usuario_id=propietario_id)
+    empresa = Empresa(**_limpiar(datos.model_dump(exclude={"usuario_id"})), usuario_id=propietario_id)
+    empresa.nombre = empresa.nombre.strip()
     db.add(empresa)
     db.commit()
     db.refresh(empresa)
-    return a_salida(empresa)
+    return _salidas(db, [empresa])[0]
 
 
 @router.get("/{empresa_id}", response_model=EmpresaOut)
 def obtener(empresa_id: uuid.UUID, db: DB, usuario: UsuarioActual):
-    return a_salida(obtener_empresa(db, usuario, empresa_id))
+    return _salidas(db, [obtener_empresa(db, usuario, empresa_id)])[0]
 
 
 @router.patch("/{empresa_id}", response_model=EmpresaOut)
 def actualizar(empresa_id: uuid.UUID, datos: EmpresaActualizar, db: DB, usuario: UsuarioActual):
     empresa = obtener_empresa(db, usuario, empresa_id)
-    cambios = cambios_no_nulos(datos.model_dump(exclude_unset=True), {"nombre", "csf", "banco", "numero_cuenta"})
+    cambios = _limpiar(cambios_no_nulos(datos.model_dump(exclude_unset=True), {"nombre"}))
     for campo, valor in cambios.items():
-        setattr(empresa, campo, valor)
+        setattr(empresa, campo, valor.strip() if campo == "nombre" else valor)
     db.commit()
-    return a_salida(empresa)
+    return _salidas(db, [empresa])[0]
 
 
 @router.post("/{empresa_id}/reasignar", response_model=EmpresaOut)
 def reasignar(empresa_id: uuid.UUID, datos: Reasignar, db: DB, admin: Admin):
-    """Pasa la empresa (con sus terminales, movimientos y salidas) a otro contador."""
+    """Pasa la empresa (con sus clientes, proyectos, movimientos y salidas) a otro contador."""
     empresa = obtener_empresa(db, admin, empresa_id)
     nuevo = _validar_propietario(db, datos.usuario_id)
     if nuevo.rol != Rol.CONTADOR:
@@ -95,38 +102,13 @@ def reasignar(empresa_id: uuid.UUID, datos: Reasignar, db: DB, admin: Admin):
         registrar(db, usuario_id=admin.id, entidad="Empresa", entidad_id=empresa.id,
                   accion=AccionBitacora.REASIGNAR_EMPRESA, detalle={"antes": anterior, "despues": nuevo.id})
         db.commit()
-    return a_salida(empresa)
+    return _salidas(db, [empresa])[0]
 
 
 @router.get("/{empresa_id}/saldo", response_model=SaldoOut)
 def saldo(empresa_id: uuid.UUID, db: DB, usuario: UsuarioActual, al_dia: date | None = None):
     empresa = obtener_empresa(db, usuario, empresa_id)
     al_dia = al_dia or hoy()
-    ingresos, salidas = totales_empresa(db, empresa.id, al_dia)
-    return SaldoOut(empresa_id=empresa.id, al_dia=al_dia, ingresos_netos=ingresos, salidas=salidas,
-                    saldo=ingresos - salidas)
-
-
-# ---------------------------------------------------------------- archivos
-@router.put("/{empresa_id}/archivos/{tipo}", response_model=EmpresaOut)
-async def subir_archivo(empresa_id: uuid.UUID, tipo: TipoArchivo, db: DB, usuario: UsuarioActual,
-                        archivo: UploadFile = File(...)):
-    """pdf1 y pdf2 aceptan PDF; logo acepta PNG, JPG o WEBP. Se valida el contenido real del archivo."""
-    empresa = obtener_empresa(db, usuario, empresa_id)
-    await archivos.guardar(empresa, tipo, archivo)
-    db.commit()
-    return a_salida(empresa)
-
-
-@router.get("/{empresa_id}/archivos/{tipo}", response_class=FileResponse)
-def descargar_archivo(empresa_id: uuid.UUID, tipo: TipoArchivo, db: DB, usuario: UsuarioActual):
-    empresa = obtener_empresa(db, usuario, empresa_id)
-    ruta, media_type = archivos.ruta_para_descarga(empresa, tipo)
-    return FileResponse(ruta, media_type=media_type, filename=f"{tipo.value}{ruta.suffix}")
-
-
-@router.delete("/{empresa_id}/archivos/{tipo}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar_archivo(empresa_id: uuid.UUID, tipo: TipoArchivo, db: DB, usuario: UsuarioActual):
-    empresa = obtener_empresa(db, usuario, empresa_id)
-    archivos.eliminar(empresa, tipo)
-    db.commit()
+    t = totales(db, empresa_id=empresa.id, hasta=al_dia)
+    return SaldoOut(al_dia=al_dia, ingresos_brutos=t.ingresos_brutos, comisiones=t.comisiones,
+                    ingresos_netos=t.ingresos_netos, salidas=t.salidas, saldo=t.saldo)

@@ -7,7 +7,9 @@ import Login from "./pages/Login";
 import Inicio from "./pages/Inicio";
 import Empresas from "./pages/Empresas";
 import EmpresaDetalle from "./pages/EmpresaDetalle";
-import Terminales from "./pages/Terminales";
+import Clientes from "./pages/Clientes";
+import ClienteDetalle from "./pages/ClienteDetalle";
+import MetodosPago from "./pages/MetodosPago";
 import Movimientos from "./pages/Movimientos";
 import Salidas from "./pages/Salidas";
 import Reportes from "./pages/Reportes";
@@ -37,11 +39,14 @@ export default function App() {
         <Route index element={<Inicio />} />
         <Route path="empresas" element={<Empresas />} />
         <Route path="empresas/:id" element={<EmpresaDetalle />} />
-        <Route path="terminales" element={<Terminales />} />
+        <Route path="clientes" element={<Clientes />} />
+        <Route path="clientes/:id" element={<ClienteDetalle />} />
+        <Route path="terminales" element={<Navigate to="/clientes" replace />} />
         <Route path="movimientos" element={<Movimientos />} />
         <Route path="salidas" element={<Salidas />} />
         <Route path="reportes" element={<Reportes />} />
         <Route path="usuarios" element={<Protegida soloAdmin><Usuarios /></Protegida>} />
+        <Route path="metodos-pago" element={<Protegida soloAdmin><MetodosPago /></Protegida>} />
         <Route path="perfil" element={<Perfil />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -1,6 +1,10 @@
-from datetime import date, timedelta
+from datetime import timedelta
+
+from sqlalchemy import select
 
 from app.core.tiempo import hoy
+from app.db.session import SessionLocal
+from app.models import MetodoPago
 
 
 def dia(n: int) -> str:
@@ -8,23 +12,49 @@ def dia(n: int) -> str:
     return (hoy() + timedelta(days=n)).isoformat()
 
 
+def metodo(nombre: str = "Transferencia") -> str:
+    with SessionLocal() as db:
+        return str(db.scalar(select(MetodoPago.id).where(MetodoPago.nombre == nombre)))
+
+
 def crear_empresa(client, h, nombre="Empresa Uno", **extra):
-    datos = {"nombre": nombre, "csf": "CSF123", "banco": "BBVA", "numero_cuenta": "0123456789", **extra}
-    r = client.post("/empresas", json=datos, headers=h)
+    r = client.post("/empresas", json={"nombre": nombre, **extra}, headers=h)
     assert r.status_code == 201, r.text
     return r.json()
 
 
-def crear_terminal(client, h, empresa_id, porcentaje="3.00", desde=None, ident="T-001"):
-    datos = {"empresa_id": empresa_id, "identificador_terminal": ident, "porcentaje_inicial": porcentaje,
+def crear_cliente(client, h, empresa_id, ident="T-001"):
+    r = client.post("/terminales", json={"empresa_id": empresa_id, "identificador_terminal": ident}, headers=h)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def crear_proyecto(client, h, terminal_id, nombre="P1", porcentaje="3.00", desde=None):
+    datos = {"terminal_id": terminal_id, "nombre": nombre, "porcentaje_inicial": porcentaje,
              "vigente_desde": desde or dia(-30)}
-    r = client.post("/terminales", json=datos, headers=h)
+    r = client.post("/proyectos", json=datos, headers=h)
     assert r.status_code == 201, r.text
     return r.json()
 
 
-def capturar(client, h, terminal_id, monto, fecha=None):
-    r = client.post("/movimientos", headers=h,
-                    json={"terminal_id": terminal_id, "monto_bruto": monto, "fecha_movimiento": fecha or dia(0)})
+def proyecto_nuevo(client, h, porcentaje="3.00", desde=None, empresa="Empresa Uno"):
+    """Empresa → cliente → proyecto en un paso."""
+    empresa = crear_empresa(client, h, empresa)
+    cliente = crear_cliente(client, h, empresa["id"])
+    return crear_proyecto(client, h, cliente["id"], porcentaje=porcentaje, desde=desde)
+
+
+def capturar(client, h, proyecto_id, monto, fecha=None, **extra):
+    datos = {"proyecto_id": proyecto_id, "monto_bruto": monto, "fecha_movimiento": fecha or dia(0),
+             "metodo_pago_id": metodo(), **extra}
+    r = client.post("/movimientos", headers=h, json=datos)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def registrar_salida(client, h, proyecto_id, monto, destino="Proveedor", fecha=None, **extra):
+    datos = {"proyecto_id": proyecto_id, "monto": monto, "destino": destino, "metodo_pago_id": metodo(),
+             **({"fecha": fecha} if fecha else {}), **extra}
+    r = client.post("/salidas", headers=h, json=datos)
     assert r.status_code == 201, r.text
     return r.json()

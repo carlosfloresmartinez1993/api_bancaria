@@ -66,6 +66,7 @@ def ejecutar_cierre(dia: date | None = None, forzar: bool = False) -> dict:
             return {"fecha": dia, "estado": "ya_enviado"}
 
         reporte = resumen_cierre(db, dia)
+        reporte.elaborado_por = "Cierre automático del sistema"
         destinatarios = list(
             db.scalars(select(Usuario.correo).where(Usuario.rol == Rol.ADMIN, Usuario.activo.is_(True)))
         )

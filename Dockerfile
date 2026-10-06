@@ -14,8 +14,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    FRONTEND_DIR=/app/static \
-    UPLOAD_DIR=/app/uploads
+    FRONTEND_DIR=/app/static
 
 WORKDIR /app
 RUN useradd --create-home --uid 1000 app
@@ -25,7 +24,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 COPY --from=frontend /frontend/dist ./static
-RUN mkdir -p /app/uploads && chown -R app:app /app/uploads
 
 USER app
 EXPOSE 8000

@@ -13,6 +13,8 @@ from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from app.core.tiempo import ahora
+
 
 class Formato(StrEnum):
     JSON = "json"
@@ -28,6 +30,8 @@ class Reporte:
     filas: list[dict[str, Any]]
     totales: dict[str, Any] | None = None
     parametros: dict[str, Any] = field(default_factory=dict)
+    # Nombre y apellidos de quien genera el reporte; se imprime al final.
+    elaborado_por: str | None = None
 
 
 MEDIA = {
@@ -58,6 +62,12 @@ def _fila_totales(reporte: Reporte) -> list[Any] | None:
     return fila
 
 
+def _pie(reporte: Reporte) -> str | None:
+    if not reporte.elaborado_por:
+        return None
+    return f"Elaborado por: {reporte.elaborado_por} — {ahora():%d/%m/%Y %H:%M}"
+
+
 def a_csv(reporte: Reporte) -> bytes:
     buffer = io.StringIO()
     escritor = csv.writer(buffer)
@@ -67,6 +77,9 @@ def a_csv(reporte: Reporte) -> bytes:
                            for clave, _ in reporte.columnas])
     if totales := _fila_totales(reporte):
         escritor.writerow(["" if v is None else str(v) for v in totales])
+    if pie := _pie(reporte):
+        escritor.writerow([])
+        escritor.writerow([pie])
     return buffer.getvalue().encode("utf-8-sig")  # BOM para que Excel respete acentos
 
 
@@ -86,6 +99,10 @@ def a_xlsx(reporte: Reporte) -> bytes:
     for columna in hoja.columns:
         ancho = max(len(_texto(c.value)) for c in columna)
         hoja.column_dimensions[columna[0].column_letter].width = min(max(ancho + 2, 10), 60)
+    if pie := _pie(reporte):  # después de calcular anchos, para no ensanchar la primera columna
+        hoja.append([])
+        hoja.append([pie])
+        hoja.cell(row=hoja.max_row, column=1).font = Font(italic=True)
     buffer = io.BytesIO()
     libro.save(buffer)
     return buffer.getvalue()
@@ -130,6 +147,8 @@ def a_pdf(reporte: Reporte) -> bytes:
         )
     )
     contenido.append(tabla)
+    if pie := _pie(reporte):
+        contenido += [Spacer(1, 14), Paragraph(f"<i>{pie}</i>", estilos["Normal"])]
     documento.build(contenido)
     return buffer.getvalue()
 

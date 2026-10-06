@@ -1,13 +1,12 @@
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
+import { CrearCliente } from "../components/formularios/ClienteForm";
 import { EmpresaForm } from "../components/formularios/EmpresaForm";
 import { CapturarMovimiento } from "../components/formularios/MovimientoForm";
 import { RegistrarSalida } from "../components/formularios/SalidaForm";
-import { CrearTerminal, DetalleTerminal } from "../components/formularios/TerminalForm";
 import { Icono } from "../components/Icono";
-import { LogoEmpresa } from "../components/LogoEmpresa";
 import { SelectorUsuario } from "../components/Selectores";
 import { useToast } from "../components/Toast";
 import {
@@ -15,6 +14,7 @@ import {
   Campo,
   Cargando,
   ErrorApi,
+  Iniciales,
   Input,
   Insignia,
   Modal,
@@ -26,16 +26,10 @@ import {
   Th,
   Vacio,
 } from "../components/ui";
-import { api, guardarBlob } from "../lib/api";
-import { fecha, hoyISO, porcentaje } from "../lib/format";
+import { api } from "../lib/api";
+import { fecha, hoyISO } from "../lib/format";
 import { useNombresUsuario } from "../lib/queries";
-import type { Empresa, Pagina, Saldo, Terminal, TipoArchivo } from "../lib/types";
-
-const ARCHIVOS: { tipo: TipoArchivo; titulo: string; acepta: string; ayuda: string }[] = [
-  { tipo: "pdf1", titulo: "Documento PDF 1", acepta: "application/pdf", ayuda: "PDF" },
-  { tipo: "pdf2", titulo: "Documento PDF 2", acepta: "application/pdf", ayuda: "PDF" },
-  { tipo: "logo", titulo: "Logo", acepta: "image/png,image/jpeg,image/webp", ayuda: "PNG, JPG o WEBP" },
-];
+import type { Empresa, Pagina, Saldo, Terminal } from "../lib/types";
 
 function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
   return (
@@ -46,11 +40,12 @@ function Dato({ etiqueta, children }: { etiqueta: string; children: ReactNode })
   );
 }
 
-function TarjetaSaldo({ empresaId }: { empresaId: string }) {
+/** Tarjeta de saldo a una fecha; sirve para empresa, cliente o proyecto según la ruta. */
+export function TarjetaSaldo({ ruta, claveCache }: { ruta: string; claveCache: string }) {
   const [alDia, setAlDia] = useState(hoyISO());
   const { data, error } = useQuery({
-    queryKey: ["saldo", empresaId, alDia],
-    queryFn: () => api.get<Saldo>(`/empresas/${empresaId}/saldo`, { al_dia: alDia }),
+    queryKey: ["saldo", claveCache, alDia],
+    queryFn: () => api.get<Saldo>(ruta, { al_dia: alDia }),
   });
   return (
     <Tarjeta className="p-5">
@@ -65,7 +60,15 @@ function TarjetaSaldo({ empresaId }: { empresaId: string }) {
       </p>
       <dl className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
         <div className="flex justify-between">
-          <dt className="text-slate-500">Ingresos netos</dt>
+          <dt className="text-slate-500">Entradas brutas</dt>
+          <dd className="font-medium"><Monto valor={data?.ingresos_brutos ?? null} /></dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-500">Comisiones</dt>
+          <dd className="font-medium">− <Monto valor={data?.comisiones ?? null} /></dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-500">Entradas netas</dt>
           <dd className="font-medium"><Monto valor={data?.ingresos_netos ?? null} /></dd>
         </div>
         <div className="flex justify-between">
@@ -74,92 +77,8 @@ function TarjetaSaldo({ empresaId }: { empresaId: string }) {
         </div>
       </dl>
       {data && Number(data.saldo) < 0 && (
-        <p className="mt-3 rounded-md bg-amber-50 p-2 text-xs text-amber-900">Saldo negativo: probablemente falta capturar algún ingreso.</p>
+        <p className="mt-3 rounded-md bg-amber-50 p-2 text-xs text-amber-900">Saldo negativo: probablemente falta capturar alguna entrada.</p>
       )}
-    </Tarjeta>
-  );
-}
-
-function Archivos({ empresa }: { empresa: Empresa }) {
-  const qc = useQueryClient();
-  const avisar = useToast();
-  const [ocupado, setOcupado] = useState<TipoArchivo | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const entradas = useRef<Partial<Record<TipoArchivo, HTMLInputElement | null>>>({});
-
-  async function ejecutar(tipo: TipoArchivo, accion: () => Promise<unknown>, mensaje?: string) {
-    setOcupado(tipo);
-    setError(null);
-    try {
-      await accion();
-      if (mensaje) {
-        avisar(mensaje);
-        await qc.invalidateQueries({ queryKey: ["empresas"] });
-      }
-    } catch (e) {
-      setError(e);
-    } finally {
-      setOcupado(null);
-    }
-  }
-
-  return (
-    <Tarjeta className="p-5">
-      <h2 className="text-base font-semibold text-slate-900">Documentos</h2>
-      <ErrorApi error={error} className="mt-3" />
-      <ul className="mt-3 divide-y divide-slate-100">
-        {ARCHIVOS.map(({ tipo, titulo, acepta, ayuda }) => {
-          const ruta = empresa.archivos[tipo];
-          return (
-            <li key={tipo} className="flex items-center justify-between gap-3 py-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <Icono nombre="documento" className={`size-5 shrink-0 ${ruta ? "text-teal-600" : "text-slate-300"}`} />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900">{titulo}</p>
-                  <p className="text-xs text-slate-500">{ruta ? "Cargado" : `Sin archivo · ${ayuda}`}</p>
-                </div>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <input
-                  type="file"
-                  accept={acepta}
-                  className="hidden"
-                  ref={(el) => { entradas.current[tipo] = el; }}
-                  onChange={(e) => {
-                    const archivo = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!archivo) return;
-                    const datos = new FormData();
-                    datos.append("archivo", archivo);
-                    ejecutar(tipo, () => api.put(`/empresas/${empresa.id}/archivos/${tipo}`, datos), `${titulo} cargado`);
-                  }}
-                />
-                {ruta && (
-                  <Boton variante="fantasma" tamano="sm" aria-label={`Descargar ${titulo}`}
-                    onClick={() => ejecutar(tipo, async () => {
-                      const blob = await api.blob(ruta);
-                      const ext = blob.type === "application/pdf" ? "pdf" : blob.type.split("/")[1] ?? "bin";
-                      guardarBlob(blob, `${empresa.nombre} - ${titulo}.${ext}`);
-                    })}>
-                    <Icono nombre="descargar" className="size-4" />
-                  </Boton>
-                )}
-                <Boton variante="secundario" tamano="sm" cargando={ocupado === tipo} onClick={() => entradas.current[tipo]?.click()}>
-                  <Icono nombre="subir" className="size-4" />
-                  {ruta ? "Reemplazar" : "Subir"}
-                </Boton>
-                {ruta && (
-                  <Boton variante="fantasma" tamano="sm" aria-label={`Eliminar ${titulo}`} className="hover:text-rose-600"
-                    onClick={() => confirm(`¿Eliminar ${titulo}?`) &&
-                      ejecutar(tipo, () => api.delete(`/empresas/${empresa.id}/archivos/${tipo}`), `${titulo} eliminado`)}>
-                    <Icono nombre="basura" className="size-4" />
-                  </Boton>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
     </Tarjeta>
   );
 }
@@ -189,7 +108,7 @@ function Reasignar({ empresa, abierto, onCerrar }: { empresa: Empresa; abierto: 
 
   return (
     <Modal abierto={abierto} titulo="Reasignar empresa" onCerrar={onCerrar}
-      descripcion="La empresa pasa a otro contador con sus terminales, movimientos y salidas.">
+      descripcion="La empresa pasa a otro contador con sus clientes, proyectos, entradas y salidas.">
       <form onSubmit={guardar} className="space-y-4">
         <Campo etiqueta="Nuevo contador" requerido>
           {(id) => <SelectorUsuario id={id} required rol="contador" valor={usuarioId} onCambiar={setUsuarioId} />}
@@ -207,11 +126,11 @@ function Reasignar({ empresa, abierto, onCerrar }: { empresa: Empresa; abierto: 
 export default function EmpresaDetalle() {
   const { id = "" } = useParams();
   const { esAdmin } = useAuth();
+  const navigate = useNavigate();
   const nombresUsuario = useNombresUsuario();
   const [editando, setEditando] = useState(false);
   const [reasignando, setReasignando] = useState(false);
-  const [creandoTerminal, setCreandoTerminal] = useState(false);
-  const [terminal, setTerminal] = useState<Terminal | null>(null);
+  const [creandoCliente, setCreandoCliente] = useState(false);
   const [capturando, setCapturando] = useState(false);
   const [registrandoSalida, setRegistrandoSalida] = useState(false);
 
@@ -219,7 +138,7 @@ export default function EmpresaDetalle() {
     queryKey: ["empresas", id],
     queryFn: () => api.get<Empresa>(`/empresas/${id}`),
   });
-  const terminales = useQuery({
+  const clientes = useQuery({
     queryKey: ["terminales", "empresa", id],
     queryFn: () => api.get<Pagina<Terminal>>("/terminales", { empresa_id: id, limit: 500 }),
   });
@@ -243,10 +162,10 @@ export default function EmpresaDetalle() {
 
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <LogoEmpresa empresa={e} className="size-16" />
+          <Iniciales nombre={e.nombre} className="size-16" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{e.nombre}</h1>
-            <p className="text-sm text-slate-500">{e.csf}</p>
+            {e.csf && <p className="text-sm text-slate-500">{e.csf}</p>}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -256,7 +175,7 @@ export default function EmpresaDetalle() {
           </Boton>
           <Boton variante="secundario" onClick={() => setRegistrandoSalida(true)}>Registrar salida</Boton>
           <Boton onClick={() => setCapturando(true)}>
-            <Icono nombre="mas" className="size-4" /> Capturar movimiento
+            <Icono nombre="mas" className="size-4" /> Capturar entrada
           </Boton>
         </div>
       </div>
@@ -266,47 +185,48 @@ export default function EmpresaDetalle() {
           <Tarjeta className="p-5">
             <h2 className="mb-4 text-base font-semibold text-slate-900">Datos de la empresa</h2>
             <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Dato etiqueta="Banco">{e.banco}</Dato>
-              <Dato etiqueta="Número de cuenta"><span className="tabular-nums">{e.numero_cuenta}</span></Dato>
+              <Dato etiqueta="Banco">{e.banco ?? "—"}</Dato>
+              <Dato etiqueta="Número de cuenta"><span className="tabular-nums">{e.numero_cuenta ?? "—"}</span></Dato>
               <Dato etiqueta="CLABE"><span className="tabular-nums">{e.clabe ?? "—"}</span></Dato>
               {esAdmin && <Dato etiqueta="Contador">{nombresUsuario.get(e.usuario_id) ?? "—"}</Dato>}
               <Dato etiqueta="Registrada">{fecha(e.fecha_registro)}</Dato>
             </dl>
             <div className="mt-5 flex flex-wrap gap-4 border-t border-slate-100 pt-4 text-sm">
-              <Link to={`/movimientos?empresa_id=${e.id}`} className="font-medium text-teal-700 hover:text-teal-800">Ver movimientos →</Link>
+              <Link to={`/movimientos?empresa_id=${e.id}`} className="font-medium text-teal-700 hover:text-teal-800">Ver entradas →</Link>
               <Link to={`/salidas?empresa_id=${e.id}`} className="font-medium text-teal-700 hover:text-teal-800">Ver salidas →</Link>
+              <Link to={`/reportes?r=constructor&empresa_id=${e.id}`} className="font-medium text-teal-700 hover:text-teal-800">Reporte →</Link>
               <Link to={`/reportes?r=estado-cuenta&empresa_id=${e.id}`} className="font-medium text-teal-700 hover:text-teal-800">Estado de cuenta →</Link>
             </div>
           </Tarjeta>
 
           <Tarjeta>
             <div className="flex items-center justify-between px-5 py-4">
-              <h2 className="text-base font-semibold text-slate-900">Terminales</h2>
-              <Boton variante="secundario" tamano="sm" onClick={() => setCreandoTerminal(true)}>
-                <Icono nombre="mas" className="size-4" /> Nueva terminal
+              <h2 className="text-base font-semibold text-slate-900">Clientes</h2>
+              <Boton variante="secundario" tamano="sm" onClick={() => setCreandoCliente(true)}>
+                <Icono nombre="mas" className="size-4" /> Nuevo cliente
               </Boton>
             </div>
-            {terminales.isLoading ? (
+            {clientes.isLoading ? (
               <Cargando />
-            ) : !terminales.data?.items.length ? (
-              <Vacio titulo="Sin terminales" descripcion="Registra una terminal para poder capturar sus movimientos." />
+            ) : !clientes.data?.items.length ? (
+              <Vacio titulo="Sin clientes" descripcion="Registra un cliente (terminal) y después sus proyectos para poder capturar entradas." />
             ) : (
               <Tabla>
                 <thead>
                   <tr>
-                    <Th>Terminal</Th>
+                    <Th>Cliente</Th>
                     <Th>Estado</Th>
-                    <Th derecha>Comisión vigente</Th>
+                    <Th derecha>Proyectos</Th>
                     <Th><span className="sr-only">Acciones</span></Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {terminales.data.items.map((t) => (
-                    <tr key={t.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setTerminal(t)}>
+                  {clientes.data.items.map((t) => (
+                    <tr key={t.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/clientes/${t.id}`)}>
                       <Td className="font-medium text-slate-900">{t.identificador_terminal}</Td>
-                      <Td>{t.activa ? <Insignia tono="exito">Activa</Insignia> : <Insignia>Inactiva</Insignia>}</Td>
-                      <Td derecha>{porcentaje(t.porcentaje_vigente)}</Td>
-                      <Td className="text-right"><Boton variante="fantasma" tamano="sm">Detalle</Boton></Td>
+                      <Td>{t.activa ? <Insignia tono="exito">Activo</Insignia> : <Insignia>Inactivo</Insignia>}</Td>
+                      <Td derecha>{t.num_proyectos}</Td>
+                      <Td className="text-right"><Boton variante="fantasma" tamano="sm">Ver proyectos</Boton></Td>
                     </tr>
                   ))}
                 </tbody>
@@ -316,17 +236,15 @@ export default function EmpresaDetalle() {
         </div>
 
         <div className="space-y-6">
-          <TarjetaSaldo empresaId={e.id} />
-          <Archivos empresa={e} />
+          <TarjetaSaldo ruta={`/empresas/${e.id}/saldo`} claveCache={`empresa-${e.id}`} />
         </div>
       </div>
 
       <EmpresaForm abierto={editando} empresa={e} onCerrar={() => setEditando(false)} />
       {esAdmin && <Reasignar empresa={e} abierto={reasignando} onCerrar={() => setReasignando(false)} />}
-      <CrearTerminal abierto={creandoTerminal} onCerrar={() => setCreandoTerminal(false)} empresaInicial={e.id} />
-      <DetalleTerminal terminal={terminal} onCerrar={() => setTerminal(null)} />
-      <CapturarMovimiento abierto={capturando} onCerrar={() => setCapturando(false)} empresaInicial={e.id} />
-      <RegistrarSalida abierto={registrandoSalida} onCerrar={() => setRegistrandoSalida(false)} empresaInicial={e.id} />
+      <CrearCliente abierto={creandoCliente} onCerrar={() => setCreandoCliente(false)} empresaInicial={e.id} />
+      <CapturarMovimiento abierto={capturando} onCerrar={() => setCapturando(false)} inicial={{ empresaId: e.id }} />
+      <RegistrarSalida abierto={registrandoSalida} onCerrar={() => setRegistrandoSalida(false)} inicial={{ empresaId: e.id }} />
     </>
   );
 }

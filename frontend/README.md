@@ -54,14 +54,14 @@ src/
 
 ## Funcionalidad
 
-- **Inicio**: saldo total, saldo por empresa (aviso de saldos negativos) y últimos movimientos.
-- **Empresas**: alta/edición, detalle con saldo a una fecha, terminales, PDFs y logo; reasignación (admin).
-- **Terminales**: alta con % inicial, activar/desactivar, historial y cambio de porcentaje
-  (avisa cuántos movimientos se recalcularon).
-- **Movimientos**: captura con vista previa del % vigente y el neto, "guardar y capturar otro",
-  corrección y eliminación con motivo (queda en la bitácora).
-- **Salidas**: registro con aviso si el saldo queda negativo, corrección y eliminación con motivo.
-- **Reportes**: los 12 reportes del backend con sus filtros, vista en tabla y descarga en Excel, PDF o CSV;
-  envío del cierre diario por correo (admin).
-- **Usuarios** (admin): alta, edición, activar/desactivar, restablecer contraseña.
-- Un contador solo ve sus empresas; las opciones de admin se ocultan según el rol.
+Jerarquía: **Empresa → Cliente (terminal) → Proyecto**, y cada proyecto tiene su % de comisión.
+
+- **Inicio**: entradas netas, comisiones, salidas y saldo; saldo y comisiones por empresa; últimas entradas.
+- **Empresas**: solo el nombre es obligatorio; detalle con sus clientes y saldo a una fecha; reasignación (admin).
+- **Clientes**: alta, activar/desactivar y detalle con sus **proyectos** (cada uno con historial y cambio de %).
+- **Entradas**: captura eligiendo empresa → cliente → proyecto, con método de pago y casilla *Requiere factura*;
+  vista previa del % y el neto; corrección y eliminación con motivo (queda en la bitácora).
+- **Salidas**: por proyecto, con método de pago; aviso si el saldo del proyecto queda negativo.
+- **Reportes**: constructor (elige empresa, marca clientes y proyectos, agrupa por empresa, cliente, proyecto,
+  método de pago o detalle) y los demás reportes; todos muestran *Elaborado por* y se descargan en Excel, PDF o CSV.
+- **Usuarios** y **Métodos de pago** (admin).

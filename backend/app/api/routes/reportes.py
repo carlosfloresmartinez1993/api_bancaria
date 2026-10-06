@@ -7,20 +7,23 @@ from fastapi.responses import JSONResponse
 
 from app.api.deps import DB, Admin, UsuarioActual
 from app.core.tiempo import hoy
-from app.models import AccionBitacora
+from app.models import AccionBitacora, Usuario
 from app.schemas.reporte import ReporteOut
 from app.services import reportes as svc
-from app.services.acceso import obtener_empresa, obtener_terminal
+from app.services.acceso import obtener_empresa, obtener_proyecto, obtener_terminal
 from app.services.cierre import ejecutar_cierre
 from app.services.exportacion import MEDIA, Formato, Reporte, exportar
+from app.services.reportes import Agrupar, Alcance, Contenido
 from app.services.serializacion import a_json
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
 
 FormatoQ = Annotated[Formato, Query(description="json, csv, xlsx o pdf")]
+Ids = Annotated[list[uuid.UUID] | None, Query()]
 
 
-def responder(reporte: Reporte, formato: Formato, nombre: str) -> Response:
+def responder(reporte: Reporte, formato: Formato, nombre: str, usuario: Usuario) -> Response:
+    reporte.elaborado_por = usuario.nombre_completo
     if formato == Formato.JSON:
         cuerpo = {
             "titulo": reporte.titulo,
@@ -28,6 +31,7 @@ def responder(reporte: Reporte, formato: Formato, nombre: str) -> Response:
             "columnas": [{"clave": c, "etiqueta": e} for c, e in reporte.columnas],
             "filas": reporte.filas,
             "totales": reporte.totales,
+            "elaborado_por": reporte.elaborado_por,
         }
         return JSONResponse(a_json(cuerpo))
     extension = formato.value
@@ -38,96 +42,91 @@ def responder(reporte: Reporte, formato: Formato, nombre: str) -> Response:
     )
 
 
+def _alcance(db, usuario: Usuario, empresa_id: uuid.UUID | None, terminal_id: list[uuid.UUID] | None,
+             proyecto_id: list[uuid.UUID] | None, metodo_pago_id: list[uuid.UUID] | None) -> Alcance:
+    """Valida que el usuario tenga acceso a cada elemento elegido (404 si alguno no es suyo)."""
+    if empresa_id:
+        obtener_empresa(db, usuario, empresa_id)
+    for t in terminal_id or []:
+        obtener_terminal(db, usuario, t)
+    for p in proyecto_id or []:
+        obtener_proyecto(db, usuario, p)
+    return Alcance(empresa_id=empresa_id, terminal_ids=terminal_id or [], proyecto_ids=proyecto_id or [],
+                   metodo_pago_ids=metodo_pago_id or [])
+
+
 DOC = {"response_model": ReporteOut, "responses": {200: {"content": {m: {} for m in MEDIA.values()}}}}
+
+
+@router.get("/constructor", **DOC, summary="Constructor de reportes: entradas y salidas por empresa, cliente o proyecto")
+def constructor(
+    db: DB,
+    usuario: UsuarioActual,
+    empresa_id: uuid.UUID | None = None,
+    terminal_id: Ids = None,
+    proyecto_id: Ids = None,
+    metodo_pago_id: Ids = None,
+    desde: date | None = None,
+    hasta: date | None = None,
+    contenido: Contenido = Contenido.AMBOS,
+    agrupar: Agrupar = Agrupar.PROYECTO,
+    requiere_factura: bool | None = None,
+    texto: Annotated[str | None, Query(max_length=100)] = None,
+    formato: FormatoQ = Formato.JSON,
+):
+    alcance = _alcance(db, usuario, empresa_id, terminal_id, proyecto_id, metodo_pago_id)
+    reporte = svc.constructor(db, usuario, alcance=alcance, desde=desde, hasta=hasta, contenido=contenido,
+                              agrupar=agrupar, requiere_factura=requiere_factura, texto=texto)
+    return responder(reporte, formato, f"reporte-{agrupar.value}", usuario)
 
 
 @router.get("/saldos", **DOC, summary="Saldo de cada empresa")
 def saldos(db: DB, usuario: UsuarioActual, al_dia: date | None = None, formato: FormatoQ = Formato.JSON):
-    return responder(svc.saldos_empresas(db, usuario, al_dia or hoy()), formato, "saldos")
+    return responder(svc.saldos_empresas(db, usuario, al_dia or hoy()), formato, "saldos", usuario)
 
 
-@router.get("/totales-por-empresa", **DOC, summary="1. Movimientos totales por empresa (admin)")
-def totales_por_empresa(db: DB, admin: Admin, empresa_id: uuid.UUID | None = None, desde: date | None = None,
-                        hasta: date | None = None, formato: FormatoQ = Formato.JSON):
-    return responder(svc.totales_por_empresa(db, admin, empresa_id, desde, hasta), formato, "totales-por-empresa")
+@router.get("/estado-cuenta", **DOC, summary="Estado de cuenta con saldo corrido")
+def estado_cuenta(db: DB, usuario: UsuarioActual, empresa_id: uuid.UUID, desde: date, hasta: date,
+                  terminal_id: Ids = None, proyecto_id: Ids = None, metodo_pago_id: Ids = None,
+                  formato: FormatoQ = Formato.JSON):
+    alcance = _alcance(db, usuario, empresa_id, terminal_id, proyecto_id, metodo_pago_id)
+    reporte = svc.estado_cuenta(db, usuario, alcance=alcance, desde=desde, hasta=hasta)
+    return responder(reporte, formato, "estado-cuenta", usuario)
 
 
-@router.get("/auditoria-captura", **DOC, summary="2. Auditoría de captura por contador (admin)")
-def auditoria_captura(db: DB, _: Admin, usuario_id: uuid.UUID | None = None, desde: date | None = None,
-                      hasta: date | None = None, formato: FormatoQ = Formato.JSON):
-    return responder(svc.auditoria_por_contador(db, usuario_id, desde, hasta), formato, "auditoria-captura")
-
-
-@router.get("/movimientos-por-terminal", **DOC, summary="3. Movimientos por terminal")
-def movimientos_por_terminal(db: DB, usuario: UsuarioActual, terminal_id: uuid.UUID, desde: date | None = None,
-                             hasta: date | None = None, formato: FormatoQ = Formato.JSON):
-    terminal = obtener_terminal(db, usuario, terminal_id)
-    reporte = svc.movimientos_detalle(db, usuario, titulo=f"Movimientos — terminal {terminal.identificador_terminal}",
-                                      terminal_id=terminal.id, desde=desde, hasta=hasta)
-    return responder(reporte, formato, "movimientos-terminal")
-
-
-@router.get("/movimientos-por-empresa", **DOC, summary="4. Movimientos por empresa")
-def movimientos_por_empresa(db: DB, usuario: UsuarioActual, empresa_id: uuid.UUID, desde: date | None = None,
-                            hasta: date | None = None, formato: FormatoQ = Formato.JSON):
-    empresa = obtener_empresa(db, usuario, empresa_id)
-    reporte = svc.movimientos_detalle(db, usuario, titulo=f"Movimientos — {empresa.nombre}",
-                                      empresa_id=empresa.id, desde=desde, hasta=hasta)
-    return responder(reporte, formato, "movimientos-empresa")
-
-
-@router.get("/conciliacion-diaria", **DOC, summary="5. Conciliación diaria por terminal")
+@router.get("/conciliacion-diaria", **DOC, summary="Conciliación diaria por cliente y proyecto")
 def conciliacion_diaria(db: DB, usuario: UsuarioActual, fecha: date, empresa_id: uuid.UUID | None = None,
-                        terminal_id: uuid.UUID | None = None, formato: FormatoQ = Formato.JSON):
-    if empresa_id:
-        obtener_empresa(db, usuario, empresa_id)
-    if terminal_id:
-        obtener_terminal(db, usuario, terminal_id)
-    return responder(svc.conciliacion_diaria(db, usuario, fecha, empresa_id, terminal_id), formato, "conciliacion")
+                        terminal_id: Ids = None, proyecto_id: Ids = None, formato: FormatoQ = Formato.JSON):
+    alcance = _alcance(db, usuario, empresa_id, terminal_id, proyecto_id, None)
+    return responder(svc.conciliacion_diaria(db, usuario, fecha, alcance), formato, "conciliacion", usuario)
 
 
-@router.get("/resumen-mensual", **DOC, summary="6. Resumen mensual/anual por empresa (admin)")
+@router.get("/resumen-mensual", **DOC, summary="Resumen mensual/anual por empresa (admin)")
 def resumen_mensual(db: DB, admin: Admin, anio: Annotated[int, Query(ge=2000, le=2100)],
                     mes: Annotated[int | None, Query(ge=1, le=12)] = None, empresa_id: uuid.UUID | None = None,
                     formato: FormatoQ = Formato.JSON):
-    return responder(svc.resumen_mensual(db, admin, anio, mes, empresa_id), formato, "resumen")
+    return responder(svc.resumen_mensual(db, admin, anio, mes, empresa_id), formato, "resumen", admin)
 
 
-@router.get("/salidas", **DOC, summary="7. Historial de salidas")
-def historial_salidas(db: DB, usuario: UsuarioActual, empresa_id: uuid.UUID | None = None,
-                      desde: date | None = None, hasta: date | None = None,
-                      texto: Annotated[str | None, Query(max_length=100)] = None, formato: FormatoQ = Formato.JSON):
-    if empresa_id:
-        obtener_empresa(db, usuario, empresa_id)
-    return responder(svc.historial_salidas(db, usuario, empresa_id, desde, hasta, texto), formato, "salidas")
+@router.get("/auditoria-captura", **DOC, summary="Auditoría de captura por contador (admin)")
+def auditoria_captura(db: DB, admin: Admin, usuario_id: uuid.UUID | None = None, desde: date | None = None,
+                      hasta: date | None = None, formato: FormatoQ = Formato.JSON):
+    return responder(svc.auditoria_por_contador(db, usuario_id, desde, hasta), formato, "auditoria-captura", admin)
 
 
-@router.get("/estado-cuenta", **DOC, summary="8. Estado de cuenta de la empresa")
-def estado_cuenta(db: DB, usuario: UsuarioActual, empresa_id: uuid.UUID, desde: date, hasta: date,
-                  formato: FormatoQ = Formato.JSON):
-    empresa = obtener_empresa(db, usuario, empresa_id)
-    return responder(svc.estado_cuenta(db, usuario, empresa, desde, hasta), formato, "estado-cuenta")
-
-
-@router.get("/comisiones-por-terminal", **DOC, summary="9. Comisiones generadas por terminal (admin)")
-def comisiones(db: DB, admin: Admin, empresa_id: uuid.UUID | None = None, desde: date | None = None,
-               hasta: date | None = None, formato: FormatoQ = Formato.JSON):
-    return responder(svc.comisiones_por_terminal(db, admin, empresa_id, desde, hasta), formato, "comisiones")
-
-
-@router.get("/bitacora", **DOC, summary="10. Bitácora de auditoría (admin)")
-def bitacora(db: DB, _: Admin, entidad: str | None = None, usuario_id: uuid.UUID | None = None,
+@router.get("/bitacora", **DOC, summary="Bitácora de auditoría (admin)")
+def bitacora(db: DB, admin: Admin, entidad: str | None = None, usuario_id: uuid.UUID | None = None,
              accion: AccionBitacora | None = None, desde: date | None = None, hasta: date | None = None,
              limit: Annotated[int, Query(ge=1, le=5000)] = 100, offset: Annotated[int, Query(ge=0)] = 0,
              formato: FormatoQ = Formato.JSON):
     reporte = svc.bitacora(db, entidad=entidad, usuario_id=usuario_id, accion=accion, desde=desde, hasta=hasta,
                            limit=limit, offset=offset)
-    return responder(reporte, formato, "bitacora")
+    return responder(reporte, formato, "bitacora", admin)
 
 
 @router.get("/cierre-diario", **DOC, summary="Resumen del cierre de un día (admin)")
-def cierre_diario(db: DB, _: Admin, fecha: date | None = None, formato: FormatoQ = Formato.JSON):
-    return responder(svc.resumen_cierre(db, fecha or hoy()), formato, "cierre-diario")
+def cierre_diario(db: DB, admin: Admin, fecha: date | None = None, formato: FormatoQ = Formato.JSON):
+    return responder(svc.resumen_cierre(db, fecha or hoy()), formato, "cierre-diario", admin)
 
 
 @router.post("/cierre-diario/enviar", summary="Envía (o reenvía) el cierre de un día por correo (admin)")

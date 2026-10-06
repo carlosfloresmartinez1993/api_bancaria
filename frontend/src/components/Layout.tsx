@@ -14,11 +14,12 @@ interface Enlace {
 const ENLACES: Enlace[] = [
   { a: "/", texto: "Inicio", icono: "inicio" },
   { a: "/empresas", texto: "Empresas", icono: "empresas" },
-  { a: "/terminales", texto: "Terminales", icono: "terminales" },
-  { a: "/movimientos", texto: "Movimientos", icono: "movimientos" },
+  { a: "/clientes", texto: "Clientes", icono: "terminales" },
+  { a: "/movimientos", texto: "Entradas", icono: "movimientos" },
   { a: "/salidas", texto: "Salidas", icono: "salidas" },
   { a: "/reportes", texto: "Reportes", icono: "reportes" },
   { a: "/usuarios", texto: "Usuarios", icono: "usuarios", soloAdmin: true },
+  { a: "/metodos-pago", texto: "Métodos de pago", icono: "pago", soloAdmin: true },
 ];
 
 function Navegacion({ onNavegar }: { onNavegar?: () => void }) {

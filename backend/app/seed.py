@@ -4,9 +4,11 @@
     python -m app.seed --reset    # BORRA todo y vuelve a poblar
 
 Crea 1 admin y 4 contadores (contraseña para todos: carlos12345678), 8 empresas,
-terminales con cambios de porcentaje, ~45 días de movimientos, salidas,
-algunas correcciones y sus registros en la bitácora. Los datos son siempre los
-mismos (semilla fija), así que se pueden comparar resultados entre corridas.
+cada una con sus clientes (terminales) y cada cliente con 1 a 3 proyectos con su
+propio % de comisión. Genera ~45 días de entradas y salidas con distintos métodos
+de pago, algunas correcciones y sus registros en la bitácora. Los datos son
+siempre los mismos (semilla fija), así que se pueden comparar resultados entre
+corridas.
 """
 
 import argparse
@@ -26,16 +28,18 @@ from app.db.session import SessionLocal, engine
 from app.models import (
     AccionBitacora,
     Empresa,
-    HistorialPorcentajeTerminal,
-    MovimientoTerminal,
+    HistorialPorcentajeProyecto,
+    MetodoPago,
+    Movimiento,
+    Proyecto,
     Rol,
-    SalidaEmpresa,
+    Salida,
     TerminalBancaria,
     Usuario,
 )
 from app.services.bitacora import instantanea, registrar
 from app.services.porcentajes import porcentaje_vigente
-from app.services.saldos import saldo_empresa
+from app.services.saldos import totales
 
 PASSWORD = "carlos12345678"
 DIAS = 45
@@ -49,17 +53,19 @@ CONTADORES = [
     ("María", "Rodríguez Soto", "maria@controlbancario.mx"),
     ("Laura", "Sánchez Vega", "laura@controlbancario.mx"),
 ]
-# (nombre, banco, terminales, venta diaria típica) — dos empresas por contador, en orden
+METODOS = ["Transferencia", "Depósito", "Efectivo"]
+# (nombre, banco o None, clientes, venta diaria típica por proyecto) — dos empresas por contador, en orden
 EMPRESAS = [
-    ("Mariscos El Güero", "BBVA", 3, 9000),
-    ("Farmacia San Miguel", "Banorte", 2, 12000),
-    ("Taller Mecánico Rivera", "Santander", 1, 6000),
-    ("Papelería La Estrella", "BBVA", 2, 3500),
-    ("Café del Puerto", "HSBC", 2, 5000),
-    ("Ferretería Baja", "Banamex", 3, 15000),
-    ("Panadería La Espiga", "Banorte", 1, 4000),
-    ("Boutique Coral", "Santander", 2, 7000),
+    ("Mariscos El Güero", "BBVA", 2, 4500),
+    ("Farmacia San Miguel", "Banorte", 2, 6000),
+    ("Taller Mecánico Rivera", None, 1, 5000),
+    ("Papelería La Estrella", "BBVA", 1, 2500),
+    ("Café del Puerto", "HSBC", 2, 2800),
+    ("Ferretería Baja", "Banamex", 3, 5500),
+    ("Panadería La Espiga", None, 1, 3000),
+    ("Boutique Coral", "Santander", 2, 3500),
 ]
+PROYECTOS = ["Proyecto Norte", "Proyecto Centro", "Proyecto Sur", "Mostrador", "Eventos", "Mayoreo"]
 DESTINOS = [
     "Pago a proveedor",
     "Nómina quincenal",
@@ -97,6 +103,19 @@ def poblar() -> None:
     password_hash = hash_password(PASSWORD)  # un solo hash: bcrypt es lento a propósito
 
     with SessionLocal() as db:
+        # ------------------------------------------------- métodos de pago
+        metodos = []
+        for nombre in METODOS:
+            metodo = db.scalar(select(MetodoPago).where(MetodoPago.nombre == nombre))
+            if metodo is None:
+                metodo = MetodoPago(nombre=nombre)
+                db.add(metodo)
+            metodos.append(metodo)
+        db.flush()
+
+        def metodo_al_azar() -> MetodoPago:
+            return rnd.choices(metodos, weights=[6, 3, 1])[0]
+
         # ---------------------------------------------------------- usuarios
         admin = Usuario(nombre=ADMIN[0], apellidos=ADMIN[1], correo=ADMIN[2],
                         password_hash=password_hash, rol=Rol.ADMIN)
@@ -115,118 +134,116 @@ def poblar() -> None:
                       accion=AccionBitacora.CREAR_USUARIO, detalle={"correo": correo, "rol": "contador"})
             contadores.append(c)
 
-        # ------------------------------------------------ empresas y terminales
-        terminales_por_empresa: dict = {}
-        empresas = []
-        for i, (nombre, banco, n_terminales, venta) in enumerate(EMPRESAS):
+        # --------------------------------------- empresas, clientes y proyectos
+        empresas = []  # (empresa, dueño, venta, [proyectos])
+        for i, (nombre, banco, n_clientes, venta) in enumerate(EMPRESAS):
             dueno = contadores[i // 2]
             empresa = Empresa(
                 usuario_id=dueno.id,
                 nombre=nombre,
-                csf=f"{nombre[:3].upper()}{rnd.randint(100000, 999999)}XX{rnd.randint(0, 9)}",
+                csf=f"{nombre[:3].upper()}{rnd.randint(100000, 999999)}XX{rnd.randint(0, 9)}" if banco else None,
                 banco=banco,
-                numero_cuenta=str(rnd.randint(10**9, 10**10 - 1)),
-                clabe="".join(str(rnd.randint(0, 9)) for _ in range(18)),
+                numero_cuenta=str(rnd.randint(10**9, 10**10 - 1)) if banco else None,
+                clabe="".join(str(rnd.randint(0, 9)) for _ in range(18)) if banco else None,
             )
             db.add(empresa)
             db.flush()
-            empresas.append((empresa, dueno, venta))
-            terminales_por_empresa[empresa.id] = []
-
-            for t in range(n_terminales):
-                terminal = TerminalBancaria(
-                    empresa_id=empresa.id,
-                    identificador_terminal=f"TPV-{rnd.randint(1000, 9999)}",
-                    datos_extra={"modelo": rnd.choice(["Verifone V200c", "Ingenico Move/5000", "Clip Total"])},
-                )
+            proyectos_empresa = []
+            for c in range(n_clientes):
+                terminal = TerminalBancaria(empresa_id=empresa.id, identificador_terminal=str(rnd.randint(1000, 9999)))
                 db.add(terminal)
                 db.flush()
-                pct_inicial = dinero(rnd.uniform(2.5, 3.9))
-                db.add(HistorialPorcentajeTerminal(terminal_id=terminal.id, porcentaje=pct_inicial,
-                                                   fecha_inicio_vigencia=inicio))
-                # La primera terminal de cada empresa cambió de % hace 15 días
-                if t == 0:
-                    cambio = hoy_ - timedelta(days=15)
+                for nombre_proyecto in rnd.sample(PROYECTOS, rnd.randint(1, 3)):
+                    proyecto = Proyecto(terminal_id=terminal.id, nombre=nombre_proyecto)
+                    db.add(proyecto)
                     db.flush()
-                    db.execute(
-                        HistorialPorcentajeTerminal.__table__.update()
-                        .where(HistorialPorcentajeTerminal.terminal_id == terminal.id)
-                        .values(fecha_fin_vigencia=cambio)
-                    )
-                    nuevo = pct_inicial + Decimal("0.50")
-                    db.add(HistorialPorcentajeTerminal(terminal_id=terminal.id, porcentaje=nuevo,
-                                                       fecha_inicio_vigencia=cambio))
-                    registrar(db, usuario_id=dueno.id, entidad="TerminalBancaria", entidad_id=terminal.id,
-                              accion=AccionBitacora.CAMBIO_PORCENTAJE,
-                              detalle={"anterior": pct_inicial, "nuevo": nuevo, "vigente_desde": cambio,
-                                       "movimientos_recalculados": 0, "motivo": "Ajuste de tarifa del banco"})
-                terminales_por_empresa[empresa.id].append(terminal)
+                    pct = dinero(rnd.choice([2, 2.5, 3, 3.5, 4, 5, 6, 9]))
+                    db.add(HistorialPorcentajeProyecto(proyecto_id=proyecto.id, porcentaje=pct,
+                                                      fecha_inicio_vigencia=inicio))
+                    proyectos_empresa.append((proyecto, terminal, pct))
+            # El primer proyecto de cada empresa cambió de % hace 15 días
+            proyecto, _, pct = proyectos_empresa[0]
+            cambio = hoy_ - timedelta(days=15)
+            db.flush()
+            db.execute(
+                HistorialPorcentajeProyecto.__table__.update()
+                .where(HistorialPorcentajeProyecto.proyecto_id == proyecto.id)
+                .values(fecha_fin_vigencia=cambio)
+            )
+            nuevo = pct + Decimal("0.50")
+            db.add(HistorialPorcentajeProyecto(proyecto_id=proyecto.id, porcentaje=nuevo, fecha_inicio_vigencia=cambio))
+            registrar(db, usuario_id=dueno.id, entidad="Proyecto", entidad_id=proyecto.id,
+                      accion=AccionBitacora.CAMBIO_PORCENTAJE,
+                      detalle={"anterior": pct, "nuevo": nuevo, "vigente_desde": cambio,
+                               "movimientos_recalculados": 0, "motivo": "Ajuste de tarifa del banco"})
+            empresas.append((empresa, dueno, venta, [p for p, _, _ in proyectos_empresa]))
         db.flush()
 
-        # -------------------------------------------------------- movimientos
+        # ---------------------------------------------------------- entradas
         movimientos = []
-        for empresa, dueno, venta in empresas:
-            terminales = terminales_por_empresa[empresa.id]
+        for empresa, dueno, venta, proyectos in empresas:
             for d in range(DIAS + 1):
                 fecha = inicio + timedelta(days=d)
-                for terminal in terminales:
-                    if rnd.random() < 0.15:  # días sin venta o sin captura
+                for proyecto in proyectos:
+                    if rnd.random() < 0.25:  # días sin venta o sin captura
                         continue
-                    monto = dinero(venta / len(terminales) * rnd.uniform(0.5, 1.6))
-                    mov = MovimientoTerminal(
-                        terminal_id=terminal.id,
+                    mov = Movimiento(
+                        proyecto_id=proyecto.id,
                         usuario_id=dueno.id,
+                        metodo_pago_id=metodo_al_azar().id,
                         fecha_movimiento=fecha,
-                        monto_bruto=monto,
-                        porcentaje_aplicado=porcentaje_vigente(db, terminal.id, fecha),
-                        fecha_captura=momento(fecha, 21, rnd.randint(0, 59)),
+                        monto_bruto=dinero(venta * rnd.uniform(0.5, 1.6)),
+                        porcentaje_aplicado=porcentaje_vigente(db, proyecto.id, fecha),
+                        requiere_factura=rnd.random() < 0.3,
+                        fecha_captura=momento(fecha, rnd.randint(9, 19), rnd.randint(0, 59)),
                         observaciones=rnd.choice([None, None, None, "Incluye ventas con tarjeta de crédito"]),
                     )
                     db.add(mov)
                     movimientos.append((mov, dueno))
 
-        # Una terminal inactiva por empresa con más de una terminal (conserva su historial)
-        for empresa, dueno, _ in empresas:
-            terminales = terminales_por_empresa[empresa.id]
-            if len(terminales) > 2:
-                terminales[-1].activa = False
-                registrar(db, usuario_id=dueno.id, entidad="TerminalBancaria", entidad_id=terminales[-1].id,
+        # Un proyecto inactivo en la empresa con más clientes (conserva su historial)
+        for empresa, dueno, _, proyectos in empresas:
+            if len(proyectos) > 4:
+                proyectos[-1].activo = False
+                registrar(db, usuario_id=dueno.id, entidad="Proyecto", entidad_id=proyectos[-1].id,
                           accion=AccionBitacora.DESACTIVAR)
         db.flush()
 
         # ------------------------------------------------ correcciones (bitácora)
+        campos = ("monto_bruto", "monto_neto", "fecha_movimiento")
         for mov, dueno in rnd.sample(movimientos, 6):
             db.refresh(mov)
-            antes = instantanea(mov, ("monto_bruto", "monto_neto", "fecha_movimiento"))
+            antes = instantanea(mov, campos)
             mov.monto_bruto = dinero(float(mov.monto_bruto) / 10)
             db.flush()
             db.refresh(mov)
-            registrar(db, usuario_id=dueno.id, entidad="MovimientoTerminal", entidad_id=mov.id,
+            registrar(db, usuario_id=dueno.id, entidad="Movimiento", entidad_id=mov.id,
                       accion=AccionBitacora.EDITAR_MOVIMIENTO,
-                      detalle={"antes": antes,
-                               "despues": instantanea(mov, ("monto_bruto", "monto_neto", "fecha_movimiento")),
-                               "motivo": "Capturé un cero de más"})
+                      detalle={"antes": antes, "despues": instantanea(mov, campos), "motivo": "Capturé un cero de más"})
 
         # ------------------------------------------------------------ salidas
-        for i, (empresa, dueno, venta) in enumerate(empresas):
-            for d in range(4, DIAS + 1, rnd.randint(4, 7)):
-                fecha = inicio + timedelta(days=d)
-                db.add(SalidaEmpresa(
-                    empresa_id=empresa.id,
-                    usuario_id=dueno.id,
-                    monto=dinero(venta * rnd.uniform(2.0, 4.5)),
-                    destino=rnd.choice(DESTINOS),
-                    fecha=fecha,
-                    observaciones=rnd.choice([None, "Transferencia realizada por contabilidad"]),
-                    fecha_registro=momento(fecha, 12),
-                ))
-            # Boutique Coral queda en negativo a propósito, para probar la advertencia
+        for empresa, dueno, venta, proyectos in empresas:
+            for proyecto in proyectos:
+                for d in range(4, DIAS + 1, rnd.randint(6, 9)):
+                    fecha = inicio + timedelta(days=d)
+                    db.add(Salida(
+                        proyecto_id=proyecto.id,
+                        usuario_id=dueno.id,
+                        metodo_pago_id=metodo_al_azar().id,
+                        monto=dinero(venta * rnd.uniform(3.0, 5.5)),
+                        destino=rnd.choice(DESTINOS),
+                        fecha=fecha,
+                        observaciones=rnd.choice([None, "Transferencia realizada por contabilidad"]),
+                        fecha_registro=momento(fecha, 12),
+                    ))
+            # Un proyecto de Boutique Coral queda en negativo a propósito, para probar la advertencia
             if empresa.nombre == "Boutique Coral":
                 db.flush()
-                faltante = saldo_empresa(db, empresa.id) + Decimal("8500.00")
-                db.add(SalidaEmpresa(empresa_id=empresa.id, usuario_id=dueno.id, monto=faltante,
-                                     destino="Liquidación a proveedor de temporada", fecha=hoy_,
-                                     observaciones="Faltan ingresos por capturar"))
+                proyecto = proyectos[0]
+                faltante = totales(db, proyecto_id=proyecto.id).saldo + Decimal("8500.00")
+                db.add(Salida(proyecto_id=proyecto.id, usuario_id=dueno.id, metodo_pago_id=metodos[0].id,
+                              monto=faltante, destino="Liquidación a proveedor de temporada", fecha=hoy_,
+                              observaciones="Faltan entradas por capturar"))
 
         db.commit()
 
@@ -235,14 +252,14 @@ def poblar() -> None:
         print(f"  admin      {ADMIN[2]}")
         for c in contadores:
             print(f"  contador   {c.correo}")
-        print(f"\n  {'Empresa':<26}{'Contador':<28}{'Terminales':>11}{'Saldo':>16}")
-        for empresa, dueno, _ in empresas:
-            saldo = saldo_empresa(db, empresa.id)
-            print(f"  {empresa.nombre:<26}{dueno.correo:<28}{len(terminales_por_empresa[empresa.id]):>11}"
-                  f"{saldo:>16,.2f}")
-        total_mov = db.scalar(select(func.count()).select_from(MovimientoTerminal))
-        total_sal = db.scalar(select(func.count()).select_from(SalidaEmpresa))
-        print(f"\n  {total_mov} movimientos y {total_sal} salidas.\n")
+        print(f"\n  {'Empresa':<26}{'Contador':<28}{'Clientes':>9}{'Proyectos':>10}{'Saldo':>16}")
+        for empresa, dueno, _, proyectos in empresas:
+            clientes = len({p.terminal_id for p in proyectos})
+            saldo = totales(db, empresa_id=empresa.id).saldo
+            print(f"  {empresa.nombre:<26}{dueno.correo:<28}{clientes:>9}{len(proyectos):>10}{saldo:>16,.2f}")
+        total_mov = db.scalar(select(func.count()).select_from(Movimiento))
+        total_sal = db.scalar(select(func.count()).select_from(Salida))
+        print(f"\n  {total_mov} entradas y {total_sal} salidas.\n")
 
 
 def main() -> int:

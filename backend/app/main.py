@@ -8,7 +8,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy.exc import IntegrityError
 
-from app.api.routes import auth, empresas, movimientos, reportes, salidas, terminales, usuarios
+from app.api.routes import auth, empresas, metodos_pago, movimientos, proyectos, reportes, salidas, terminales, usuarios
 from app.core.config import settings
 from app.core.errors import ErrorDominio
 from app.core.rate_limit import limiter
@@ -19,7 +19,6 @@ logger = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    settings.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     scheduler = None
     if settings.SCHEDULER_ENABLED:
         from app.jobs.scheduler import iniciar_scheduler
@@ -33,7 +32,7 @@ async def lifespan(_: FastAPI):
 docs = settings.DOCS_ENABLED
 app = FastAPI(
     title=settings.APP_NAME,
-    description="Control paralelo de ingresos por terminal y salidas de dinero por empresa.",
+    description="Control paralelo de entradas y salidas por empresa, cliente (terminal) y proyecto.",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs" if docs else None,
@@ -85,7 +84,7 @@ async def manejar_error_inesperado(_: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 
-for modulo in (auth, usuarios, empresas, terminales, movimientos, salidas, reportes):
+for modulo in (auth, usuarios, empresas, terminales, proyectos, metodos_pago, movimientos, salidas, reportes):
     app.include_router(modulo.router)
 
 

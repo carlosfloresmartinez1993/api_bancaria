@@ -1,9 +1,10 @@
 # Control Bancario
 
-Sistema web para llevar un control paralelo de los ingresos por terminal punto de venta (TPV)
-y las salidas de dinero de varias empresas. Calcula automáticamente la comisión del banco según
-el porcentaje vigente de cada terminal y mantiene el saldo de cada empresa, con bitácora de
-auditoría y reportes en Excel, PDF y CSV.
+Sistema web para llevar un control paralelo de las entradas y salidas de dinero de varias
+empresas, organizadas en **Empresa → Cliente (terminal) → Proyecto**. Cada proyecto tiene su
+propio porcentaje de comisión; el sistema calcula el neto con el % vigente del día, lleva el saldo
+por proyecto, cliente y empresa, registra el método de pago y si la entrada requiere factura, y
+genera reportes a la medida en Excel, PDF y CSV con bitácora de auditoría.
 
 | Carpeta | Contenido |
 |---|---|
@@ -59,7 +60,6 @@ Para una demostración con datos de prueba, cambia `SEED_DEMO` a `true` en el se
 Limitaciones del plan gratuito:
 
 - El servicio se duerme tras unos minutos sin uso; la primera visita tarda en despertarlo.
-- El disco no es persistente: **los PDFs y logos subidos se pierden** en cada despliegue o reinicio.
 - La base de datos gratuita tiene vigencia limitada; revisa las condiciones actuales de Render.
 - Por lo anterior, el cierre diario automático está desactivado (`SCHEDULER_ENABLED=false`);
   se puede enviar a mano desde **Reportes → Cierre diario**.

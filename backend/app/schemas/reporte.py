@@ -14,3 +14,4 @@ class ReporteOut(BaseModel):
     columnas: list[Columna]
     filas: list[dict[str, Any]]
     totales: dict[str, Any] | None = None
+    elaborado_por: str | None = None

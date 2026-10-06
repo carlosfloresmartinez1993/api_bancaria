@@ -38,10 +38,6 @@ class Settings(BaseSettings):
     # Zona horaria del negocio: define qué es "hoy" y a qué hora corre el cierre
     TIMEZONE: str = "America/Tijuana"
 
-    # Archivos (PDFs y logo de las empresas)
-    UPLOAD_DIR: Path = Path("./uploads")
-    MAX_UPLOAD_MB: int = Field(default=10, ge=1, le=100)
-
     # Build del frontend (frontend/dist) que sirve app.servidor en producción
     FRONTEND_DIR: Path = Path("./static")
 

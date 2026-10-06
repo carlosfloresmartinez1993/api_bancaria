@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ConfirmarEliminacion } from "../components/formularios/ConfirmarEliminacion";
 import { EditarSalida, RegistrarSalida } from "../components/formularios/SalidaForm";
 import { Icono } from "../components/Icono";
-import { SelectorEmpresa } from "../components/Selectores";
+import { SelectorCliente, SelectorEmpresa, SelectorMetodoPago, SelectorProyecto } from "../components/Selectores";
 import { useToast } from "../components/Toast";
 import {
   Boton,
@@ -24,21 +24,20 @@ import { api } from "../lib/api";
 import { fecha } from "../lib/format";
 import { useFiltros } from "../lib/filtros";
 import { useInvalidarDinero } from "../lib/invalidar";
-import { useNombresEmpresa } from "../lib/queries";
+import { useNombresEmpresa, useNombresMetodoPago, useNombresProyecto, useNombresTerminal } from "../lib/queries";
 import type { Pagina, Salida, Saldo } from "../lib/types";
 
 const LIMITE = 50;
-const CLAVES = ["empresa_id", "desde", "hasta", "texto"] as const;
+const CLAVES = ["empresa_id", "terminal_id", "proyecto_id", "metodo_pago_id", "desde", "hasta", "texto"] as const;
 
-function SaldoEmpresa({ empresaId }: { empresaId: string }) {
-  const { data } = useQuery({
-    queryKey: ["saldo", empresaId],
-    queryFn: () => api.get<Saldo>(`/empresas/${empresaId}/saldo`),
-  });
+/** Saldo del nivel más específico elegido en los filtros (proyecto, cliente o empresa). */
+function SaldoFiltrado({ ruta, etiqueta }: { ruta: string; etiqueta: string }) {
+  const { data } = useQuery({ queryKey: ["saldo", ruta], queryFn: () => api.get<Saldo>(ruta) });
   if (!data) return null;
   return (
     <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-      <span className="text-slate-500">Ingresos netos <strong className="text-slate-900"><Monto valor={data.ingresos_netos} /></strong></span>
+      <span className="font-medium text-slate-700">{etiqueta}</span>
+      <span className="text-slate-500">Entradas netas <strong className="text-slate-900"><Monto valor={data.ingresos_netos} /></strong></span>
       <span className="text-slate-500">Salidas <strong className="text-slate-900"><Monto valor={data.salidas} /></strong></span>
       <span className="text-slate-500">Saldo <strong><Monto valor={data.saldo} resaltarNegativo /></strong></span>
     </div>
@@ -50,6 +49,9 @@ export default function Salidas() {
   const invalidar = useInvalidarDinero();
   const { filtros, offset, cambiar, limpiar, activos } = useFiltros(CLAVES);
   const nombresEmpresa = useNombresEmpresa();
+  const nombresCliente = useNombresTerminal();
+  const nombresProyecto = useNombresProyecto();
+  const nombresMetodo = useNombresMetodoPago();
   const [registrando, setRegistrando] = useState(false);
   const [editando, setEditando] = useState<Salida | null>(null);
   const [eliminando, setEliminando] = useState<Salida | null>(null);
@@ -67,11 +69,19 @@ export default function Salidas() {
     placeholderData: keepPreviousData,
   });
 
+  const saldo = filtros.proyecto_id
+    ? { ruta: `/proyectos/${filtros.proyecto_id}/saldo`, etiqueta: `Proyecto ${nombresProyecto.get(filtros.proyecto_id) ?? ""}` }
+    : filtros.terminal_id
+      ? { ruta: `/terminales/${filtros.terminal_id}/saldo`, etiqueta: `Cliente ${nombresCliente.get(filtros.terminal_id) ?? ""}` }
+      : filtros.empresa_id
+        ? { ruta: `/empresas/${filtros.empresa_id}/saldo`, etiqueta: nombresEmpresa.get(filtros.empresa_id) ?? "Empresa" }
+        : null;
+
   return (
     <>
       <EncabezadoPagina
         titulo="Salidas de dinero"
-        descripcion="Control paralelo: el sistema no bloquea salidas, pero avisa si el saldo queda negativo."
+        descripcion="Cada salida pertenece a un proyecto. Control paralelo: no se bloquean, pero se avisa si el saldo queda negativo."
         acciones={
           <Boton onClick={() => setRegistrando(true)}>
             <Icono nombre="mas" className="size-4" />
@@ -83,7 +93,25 @@ export default function Salidas() {
       <Tarjeta className="mb-4 p-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo etiqueta="Empresa">
-            {(id) => <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas" onCambiar={(v) => cambiar({ empresa_id: v })} />}
+            {(id) => (
+              <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas"
+                onCambiar={(v) => cambiar({ empresa_id: v, terminal_id: "", proyecto_id: "" })} />
+            )}
+          </Campo>
+          <Campo etiqueta="Cliente">
+            {(id) => (
+              <SelectorCliente id={id} valor={filtros.terminal_id} vacio="Todos" empresaId={filtros.empresa_id}
+                onCambiar={(v) => cambiar({ terminal_id: v, proyecto_id: "" })} />
+            )}
+          </Campo>
+          <Campo etiqueta="Proyecto">
+            {(id) => (
+              <SelectorProyecto id={id} valor={filtros.proyecto_id} vacio="Todos" empresaId={filtros.empresa_id || undefined}
+                terminalId={filtros.terminal_id || undefined} onCambiar={(v) => cambiar({ proyecto_id: v })} />
+            )}
+          </Campo>
+          <Campo etiqueta="Método de pago">
+            {(id) => <SelectorMetodoPago id={id} valor={filtros.metodo_pago_id} vacio="Todos" onCambiar={(v) => cambiar({ metodo_pago_id: v })} />}
           </Campo>
           <Campo etiqueta="Buscar en destino">
             {(id) => <Input id={id} type="search" maxLength={100} placeholder="Ej. nómina" value={texto} onChange={(e) => setTexto(e.target.value)} />}
@@ -95,9 +123,9 @@ export default function Salidas() {
             {(id) => <Input id={id} type="date" value={filtros.hasta} onChange={(e) => cambiar({ hasta: e.target.value })} />}
           </Campo>
         </div>
-        {(filtros.empresa_id || activos) && (
+        {(saldo || activos) && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            {filtros.empresa_id ? <SaldoEmpresa empresaId={filtros.empresa_id} /> : <span />}
+            {saldo ? <SaldoFiltrado ruta={saldo.ruta} etiqueta={saldo.etiqueta} /> : <span />}
             {activos && (
               <Boton variante="fantasma" tamano="sm" onClick={() => { setTexto(""); limpiar(); }}>Limpiar filtros</Boton>
             )}
@@ -121,8 +149,9 @@ export default function Salidas() {
               <thead>
                 <tr>
                   <Th>Fecha</Th>
-                  <Th>Empresa</Th>
+                  <Th>Empresa / cliente / proyecto</Th>
                   <Th>Destino</Th>
+                  <Th>Método</Th>
                   <Th derecha>Monto</Th>
                   <Th><span className="sr-only">Acciones</span></Th>
                 </tr>
@@ -131,11 +160,17 @@ export default function Salidas() {
                 {data.items.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50">
                     <Td className="whitespace-nowrap">{fecha(s.fecha)}</Td>
-                    <Td className="font-medium text-slate-900">{nombresEmpresa.get(s.empresa_id) ?? "—"}</Td>
+                    <Td>
+                      <p className="font-medium text-slate-900">{nombresEmpresa.get(s.empresa_id) ?? "—"}</p>
+                      <p className="text-xs text-slate-500">
+                        {nombresCliente.get(s.terminal_id) ?? "—"} · {nombresProyecto.get(s.proyecto_id) ?? "—"}
+                      </p>
+                    </Td>
                     <Td>
                       <p>{s.destino}</p>
                       {s.observaciones && <p className="text-xs text-slate-500">{s.observaciones}</p>}
                     </Td>
+                    <Td className="whitespace-nowrap">{nombresMetodo.get(s.metodo_pago_id) ?? "—"}</Td>
                     <Td derecha className="font-medium text-slate-900"><Monto valor={s.monto} /></Td>
                     <Td className="whitespace-nowrap text-right">
                       <Boton variante="fantasma" tamano="sm" onClick={() => setEditando(s)} aria-label="Corregir">
@@ -155,7 +190,8 @@ export default function Salidas() {
         )}
       </Tarjeta>
 
-      <RegistrarSalida abierto={registrando} onCerrar={() => setRegistrando(false)} empresaInicial={filtros.empresa_id} />
+      <RegistrarSalida abierto={registrando} onCerrar={() => setRegistrando(false)}
+        inicial={{ empresaId: filtros.empresa_id, clienteId: filtros.terminal_id, proyectoId: filtros.proyecto_id }} />
       <EditarSalida salida={editando} onCerrar={() => setEditando(null)} />
       <ConfirmarEliminacion
         abierto={eliminando !== null}

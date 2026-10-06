@@ -3,67 +3,85 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import DB, PaginacionDep, UsuarioActual
 from app.api.utils import cambios_no_nulos, paginar, validar_no_futura
+from app.core.errors import ReglaNegocio
 from app.core.tiempo import hoy
-from app.models import AccionBitacora, Empresa, SalidaEmpresa
+from app.models import AccionBitacora, Empresa, Proyecto, Salida, TerminalBancaria
 from app.schemas.comun import Pagina
 from app.schemas.salida import SalidaActualizar, SalidaCrear, SalidaOut, SalidaRegistrada
-from app.services.acceso import obtener_empresa, obtener_salida, solo_propias
+from app.services.acceso import obtener_proyecto, obtener_salida, solo_propias, unir_jerarquia
 from app.services.bitacora import instantanea, registrar
+from app.services.metodos_pago import validar_metodo_pago
 from app.services.reportes import escapar_like, validar_rango
-from app.services.saldos import saldo_empresa
+from app.services.saldos import totales
 
 router = APIRouter(prefix="/salidas", tags=["Salidas de dinero"])
 
-CAMPOS = ("monto", "destino", "fecha", "observaciones")
+CAMPOS = ("proyecto_id", "monto", "destino", "fecha", "metodo_pago_id", "observaciones")
 
 
-def _con_saldo(db: Session, salida: SalidaEmpresa) -> SalidaRegistrada:
-    """El sistema es un control paralelo: no bloquea salidas, pero advierte si el saldo queda negativo."""
-    saldo = saldo_empresa(db, salida.empresa_id)
+def _con_saldo(db: Session, salida: Salida) -> SalidaRegistrada:
+    """El sistema es un control paralelo: no bloquea salidas, pero advierte si el saldo del proyecto queda negativo."""
+    saldo_proyecto = totales(db, proyecto_id=salida.proyecto_id).saldo
+    saldo_empresa = totales(db, empresa_id=salida.empresa_id).saldo
     advertencia = None
-    if saldo < 0:
-        advertencia = (f"El saldo de la empresa quedó negativo ({saldo:,.2f}). "
-                       "Probablemente falta capturar algún ingreso.")
-    return SalidaRegistrada(salida=SalidaOut.model_validate(salida), saldo_empresa=saldo, advertencia=advertencia)
+    if saldo_proyecto < 0:
+        advertencia = (f"El saldo del proyecto quedó negativo ({saldo_proyecto:,.2f}). "
+                       "Probablemente falta capturar alguna entrada.")
+    return SalidaRegistrada(salida=SalidaOut.model_validate(salida), saldo_proyecto=saldo_proyecto,
+                            saldo_empresa=saldo_empresa, advertencia=advertencia)
 
 
 @router.get("", response_model=Pagina[SalidaOut])
 def listar(db: DB, usuario: UsuarioActual, pag: PaginacionDep, empresa_id: uuid.UUID | None = None,
-           desde: date | None = None, hasta: date | None = None,
+           terminal_id: uuid.UUID | None = None, proyecto_id: uuid.UUID | None = None,
+           metodo_pago_id: uuid.UUID | None = None, desde: date | None = None, hasta: date | None = None,
            texto: Annotated[str | None, Query(max_length=100, description="Búsqueda en destino")] = None):
     validar_rango(desde, hasta)
     stmt = solo_propias(
-        select(SalidaEmpresa).join(Empresa, SalidaEmpresa.empresa_id == Empresa.id), usuario
-    ).order_by(SalidaEmpresa.fecha.desc(), SalidaEmpresa.fecha_registro.desc())
+        unir_jerarquia(select(Salida), Salida.proyecto_id).options(
+            joinedload(Salida.proyecto).joinedload(Proyecto.terminal)
+        ),
+        usuario,
+    ).order_by(Salida.fecha.desc(), Salida.fecha_registro.desc())
     if empresa_id:
-        stmt = stmt.where(SalidaEmpresa.empresa_id == empresa_id)
+        stmt = stmt.where(Empresa.id == empresa_id)
+    if terminal_id:
+        stmt = stmt.where(TerminalBancaria.id == terminal_id)
+    if proyecto_id:
+        stmt = stmt.where(Salida.proyecto_id == proyecto_id)
+    if metodo_pago_id:
+        stmt = stmt.where(Salida.metodo_pago_id == metodo_pago_id)
     if desde:
-        stmt = stmt.where(SalidaEmpresa.fecha >= desde)
+        stmt = stmt.where(Salida.fecha >= desde)
     if hasta:
-        stmt = stmt.where(SalidaEmpresa.fecha <= hasta)
+        stmt = stmt.where(Salida.fecha <= hasta)
     if texto:
-        stmt = stmt.where(SalidaEmpresa.destino.ilike(f"%{escapar_like(texto)}%", escape="\\"))
+        patron = f"%{escapar_like(texto.strip())}%"
+        stmt = stmt.where(or_(Salida.destino.ilike(patron, escape="\\"),
+                              Salida.observaciones.ilike(patron, escape="\\")))
     return paginar(db, stmt, pag.limit, pag.offset)
 
 
 @router.post("", response_model=SalidaRegistrada, status_code=status.HTTP_201_CREATED)
 def registrar_salida(datos: SalidaCrear, db: DB, usuario: UsuarioActual):
-    empresa = obtener_empresa(db, usuario, datos.empresa_id)
+    proyecto = obtener_proyecto(db, usuario, datos.proyecto_id)
+    if not proyecto.activo:
+        raise ReglaNegocio("El proyecto está inactivo; no acepta salidas nuevas")
     fecha = datos.fecha or hoy()
     validar_no_futura(fecha)
-    salida = SalidaEmpresa(
-        empresa_id=empresa.id, usuario_id=usuario.id, monto=datos.monto, destino=datos.destino.strip(),
-        fecha=fecha, observaciones=datos.observaciones,
+    validar_metodo_pago(db, datos.metodo_pago_id)
+    salida = Salida(
+        proyecto_id=proyecto.id, usuario_id=usuario.id, metodo_pago_id=datos.metodo_pago_id, monto=datos.monto,
+        destino=datos.destino.strip(), fecha=fecha, observaciones=datos.observaciones,
     )
     db.add(salida)
     db.commit()
-    db.refresh(salida)
-    return _con_saldo(db, salida)
+    return _con_saldo(db, obtener_salida(db, usuario, salida.id))
 
 
 @router.get("/{salida_id}", response_model=SalidaOut)
@@ -74,28 +92,36 @@ def obtener(salida_id: uuid.UUID, db: DB, usuario: UsuarioActual):
 @router.patch("/{salida_id}", response_model=SalidaRegistrada)
 def corregir(salida_id: uuid.UUID, datos: SalidaActualizar, db: DB, usuario: UsuarioActual):
     salida = obtener_salida(db, usuario, salida_id)
-    cambios = cambios_no_nulos(datos.model_dump(exclude_unset=True, exclude={"motivo"}), {"monto", "destino", "fecha"})
+    cambios = cambios_no_nulos(datos.model_dump(exclude_unset=True, exclude={"motivo"}),
+                               {"proyecto_id", "monto", "destino", "fecha", "metodo_pago_id"})
+    if "proyecto_id" in cambios and cambios["proyecto_id"] != salida.proyecto_id:
+        destino = obtener_proyecto(db, usuario, cambios["proyecto_id"])
+        if destino.terminal.empresa_id != salida.empresa_id:
+            raise ReglaNegocio("Solo se puede mover la salida a otro proyecto de la misma empresa")
+        if not destino.activo:
+            raise ReglaNegocio("El proyecto destino está inactivo")
     if "fecha" in cambios:
         validar_no_futura(cambios["fecha"])
+    if "metodo_pago_id" in cambios and cambios["metodo_pago_id"] != salida.metodo_pago_id:
+        validar_metodo_pago(db, cambios["metodo_pago_id"])
     antes = instantanea(salida, CAMPOS)
     for campo, valor in cambios.items():
         setattr(salida, campo, valor)
     despues = instantanea(salida, CAMPOS)
     if antes != despues:
-        registrar(db, usuario_id=usuario.id, entidad="SalidaEmpresa", entidad_id=salida.id,
+        registrar(db, usuario_id=usuario.id, entidad="Salida", entidad_id=salida.id,
                   accion=AccionBitacora.EDITAR_SALIDA,
                   detalle={"antes": antes, "despues": despues, "motivo": datos.motivo})
         db.commit()
-    return _con_saldo(db, salida)
+    return _con_saldo(db, obtener_salida(db, usuario, salida_id))
 
 
 @router.delete("/{salida_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar(salida_id: uuid.UUID, db: DB, usuario: UsuarioActual,
              motivo: Annotated[str | None, Query(max_length=500)] = None):
     salida = obtener_salida(db, usuario, salida_id)
-    registrar(db, usuario_id=usuario.id, entidad="SalidaEmpresa", entidad_id=salida.id,
+    registrar(db, usuario_id=usuario.id, entidad="Salida", entidad_id=salida.id,
               accion=AccionBitacora.ELIMINAR_SALIDA,
-              detalle={"antes": {**instantanea(salida, CAMPOS), "empresa_id": str(salida.empresa_id)},
-                       "motivo": motivo})
+              detalle={"antes": instantanea(salida, CAMPOS), "motivo": motivo})
     db.delete(salida)
     db.commit()

@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { CrearTerminal, DetalleTerminal } from "../components/formularios/TerminalForm";
+import { CrearCliente } from "../components/formularios/ClienteForm";
 import { Icono } from "../components/Icono";
 import { SelectorEmpresa } from "../components/Selectores";
 import {
@@ -19,7 +20,7 @@ import {
   Vacio,
 } from "../components/ui";
 import { api } from "../lib/api";
-import { fecha, porcentaje } from "../lib/format";
+import { fecha } from "../lib/format";
 import { useFiltros } from "../lib/filtros";
 import { useNombresEmpresa } from "../lib/queries";
 import type { Pagina, Terminal } from "../lib/types";
@@ -27,11 +28,11 @@ import type { Pagina, Terminal } from "../lib/types";
 const LIMITE = 50;
 const CLAVES = ["empresa_id", "activa"] as const;
 
-export default function Terminales() {
+export default function Clientes() {
+  const navigate = useNavigate();
   const { filtros, offset, cambiar } = useFiltros(CLAVES);
   const nombresEmpresa = useNombresEmpresa();
   const [creando, setCreando] = useState(false);
-  const [seleccionada, setSeleccionada] = useState<Terminal | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["terminales", "lista", filtros, offset],
@@ -42,12 +43,12 @@ export default function Terminales() {
   return (
     <>
       <EncabezadoPagina
-        titulo="Terminales"
-        descripcion="Terminales punto de venta de cada empresa y el porcentaje de comisión que cobra el banco."
+        titulo="Clientes"
+        descripcion="Terminales de cada empresa. Cada cliente tiene sus proyectos, y cada proyecto su % de comisión."
         acciones={
           <Boton onClick={() => setCreando(true)}>
             <Icono nombre="mas" className="size-4" />
-            Nueva terminal
+            Nuevo cliente
           </Boton>
         }
       />
@@ -60,9 +61,9 @@ export default function Terminales() {
           <Campo etiqueta="Estado">
             {(id) => (
               <Select id={id} value={filtros.activa} onChange={(e) => cambiar({ activa: e.target.value })}>
-                <option value="">Todas</option>
-                <option value="true">Activas</option>
-                <option value="false">Inactivas</option>
+                <option value="">Todos</option>
+                <option value="true">Activos</option>
+                <option value="false">Inactivos</option>
               </Select>
             )}
           </Campo>
@@ -75,34 +76,31 @@ export default function Terminales() {
         {isLoading ? (
           <Cargando />
         ) : !data?.items.length ? (
-          <Vacio titulo="No hay terminales" descripcion="Registra una terminal para empezar a capturar sus cortes."
-            accion={<Boton onClick={() => setCreando(true)}>Nueva terminal</Boton>} />
+          <Vacio titulo="No hay clientes" descripcion="Registra un cliente para después agregarle sus proyectos."
+            accion={<Boton onClick={() => setCreando(true)}>Nuevo cliente</Boton>} />
         ) : (
           <>
             <Tabla>
               <thead>
                 <tr>
-                  <Th>Terminal</Th>
+                  <Th>Cliente</Th>
                   <Th>Empresa</Th>
+                  <Th derecha>Proyectos</Th>
                   <Th>Estado</Th>
-                  <Th derecha>Comisión vigente</Th>
-                  <Th>Registrada</Th>
+                  <Th>Registrado</Th>
                   <Th><span className="sr-only">Acciones</span></Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {data.items.map((t) => (
-                  <tr key={t.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setSeleccionada(t)}>
-                    <Td>
-                      <p className="font-medium text-slate-900">{t.identificador_terminal}</p>
-                      {typeof t.datos_extra.modelo === "string" && <p className="text-xs text-slate-500">{t.datos_extra.modelo}</p>}
-                    </Td>
+                  <tr key={t.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/clientes/${t.id}`)}>
+                    <Td className="font-medium text-slate-900">{t.identificador_terminal}</Td>
                     <Td>{nombresEmpresa.get(t.empresa_id) ?? "—"}</Td>
-                    <Td>{t.activa ? <Insignia tono="exito">Activa</Insignia> : <Insignia>Inactiva</Insignia>}</Td>
-                    <Td derecha className="font-medium">{porcentaje(t.porcentaje_vigente)}</Td>
+                    <Td derecha>{t.num_proyectos}</Td>
+                    <Td>{t.activa ? <Insignia tono="exito">Activo</Insignia> : <Insignia>Inactivo</Insignia>}</Td>
                     <Td className="whitespace-nowrap">{fecha(t.fecha_registro)}</Td>
                     <Td className="text-right">
-                      <Boton variante="fantasma" tamano="sm">Ver detalle</Boton>
+                      <Boton variante="fantasma" tamano="sm">Ver proyectos</Boton>
                     </Td>
                   </tr>
                 ))}
@@ -113,8 +111,7 @@ export default function Terminales() {
         )}
       </Tarjeta>
 
-      <CrearTerminal abierto={creando} onCerrar={() => setCreando(false)} empresaInicial={filtros.empresa_id} />
-      <DetalleTerminal terminal={seleccionada} onCerrar={() => setSeleccionada(null)} />
+      <CrearCliente abierto={creando} onCerrar={() => setCreando(false)} empresaInicial={filtros.empresa_id} />
     </>
   );
 }

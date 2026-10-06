@@ -4,7 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { ConfirmarEliminacion } from "../components/formularios/ConfirmarEliminacion";
 import { CapturarMovimiento, EditarMovimiento } from "../components/formularios/MovimientoForm";
 import { Icono } from "../components/Icono";
-import { SelectorEmpresa, SelectorTerminal, SelectorUsuario } from "../components/Selectores";
+import { SelectorCliente, SelectorEmpresa, SelectorMetodoPago, SelectorProyecto, SelectorUsuario } from "../components/Selectores";
 import { useToast } from "../components/Toast";
 import {
   Boton,
@@ -16,6 +16,7 @@ import {
   Insignia,
   Monto,
   Paginacion,
+  Select,
   Tabla,
   Tarjeta,
   Td,
@@ -26,11 +27,11 @@ import { api } from "../lib/api";
 import { fecha, fechaHoraLocal, porcentaje } from "../lib/format";
 import { useFiltros } from "../lib/filtros";
 import { useInvalidarDinero } from "../lib/invalidar";
-import { useNombresEmpresa, useNombresTerminal, useNombresUsuario } from "../lib/queries";
+import { useNombresEmpresa, useNombresMetodoPago, useNombresProyecto, useNombresTerminal, useNombresUsuario } from "../lib/queries";
 import type { Movimiento, Pagina } from "../lib/types";
 
 const LIMITE = 50;
-const CLAVES = ["empresa_id", "terminal_id", "capturo_id", "desde", "hasta"] as const;
+const CLAVES = ["empresa_id", "terminal_id", "proyecto_id", "metodo_pago_id", "requiere_factura", "capturo_id", "desde", "hasta"] as const;
 
 export default function Movimientos() {
   const { esAdmin, usuario } = useAuth();
@@ -38,7 +39,9 @@ export default function Movimientos() {
   const invalidar = useInvalidarDinero();
   const { filtros, offset, cambiar, limpiar, activos } = useFiltros(CLAVES);
   const nombresEmpresa = useNombresEmpresa();
-  const nombresTerminal = useNombresTerminal();
+  const nombresCliente = useNombresTerminal();
+  const nombresProyecto = useNombresProyecto();
+  const nombresMetodo = useNombresMetodoPago();
   const nombresUsuario = useNombresUsuario();
 
   const [capturando, setCapturando] = useState(false);
@@ -57,28 +60,46 @@ export default function Movimientos() {
   return (
     <>
       <EncabezadoPagina
-        titulo="Movimientos"
-        descripcion="Ingresos capturados por terminal. El neto lo calcula la base de datos con el % vigente del día."
+        titulo="Entradas"
+        descripcion="Ingresos capturados por proyecto. El neto lo calcula la base de datos con el % vigente del proyecto ese día."
         acciones={
           <Boton onClick={() => setCapturando(true)}>
             <Icono nombre="mas" className="size-4" />
-            Capturar movimiento
+            Capturar entrada
           </Boton>
         }
       />
 
       <Tarjeta className="mb-4 p-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo etiqueta="Empresa">
             {(id) => (
               <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas"
-                onCambiar={(v) => cambiar({ empresa_id: v, terminal_id: "" })} />
+                onCambiar={(v) => cambiar({ empresa_id: v, terminal_id: "", proyecto_id: "" })} />
             )}
           </Campo>
-          <Campo etiqueta="Terminal">
+          <Campo etiqueta="Cliente">
             {(id) => (
-              <SelectorTerminal id={id} valor={filtros.terminal_id} vacio="Todas" empresaId={filtros.empresa_id}
-                onCambiar={(v) => cambiar({ terminal_id: v })} />
+              <SelectorCliente id={id} valor={filtros.terminal_id} vacio="Todos" empresaId={filtros.empresa_id}
+                onCambiar={(v) => cambiar({ terminal_id: v, proyecto_id: "" })} />
+            )}
+          </Campo>
+          <Campo etiqueta="Proyecto">
+            {(id) => (
+              <SelectorProyecto id={id} valor={filtros.proyecto_id} vacio="Todos" empresaId={filtros.empresa_id || undefined}
+                terminalId={filtros.terminal_id || undefined} onCambiar={(v) => cambiar({ proyecto_id: v })} />
+            )}
+          </Campo>
+          <Campo etiqueta="Método de pago">
+            {(id) => <SelectorMetodoPago id={id} valor={filtros.metodo_pago_id} vacio="Todos" onCambiar={(v) => cambiar({ metodo_pago_id: v })} />}
+          </Campo>
+          <Campo etiqueta="Factura">
+            {(id) => (
+              <Select id={id} value={filtros.requiere_factura} onChange={(e) => cambiar({ requiere_factura: e.target.value })}>
+                <option value="">Todas</option>
+                <option value="true">Requieren factura</option>
+                <option value="false">Sin factura</option>
+              </Select>
             )}
           </Campo>
           {esAdmin && (
@@ -107,8 +128,8 @@ export default function Movimientos() {
           <Cargando />
         ) : !data?.items.length ? (
           <Vacio
-            titulo={activos ? "Ningún movimiento coincide con los filtros" : "Aún no hay movimientos"}
-            accion={!activos && <Boton onClick={() => setCapturando(true)}>Capturar el primero</Boton>}
+            titulo={activos ? "Ninguna entrada coincide con los filtros" : "Aún no hay entradas"}
+            accion={!activos && <Boton onClick={() => setCapturando(true)}>Capturar la primera</Boton>}
           />
         ) : (
           <>
@@ -116,7 +137,8 @@ export default function Movimientos() {
               <thead>
                 <tr>
                   <Th>Fecha</Th>
-                  <Th>Empresa / terminal</Th>
+                  <Th>Empresa / cliente / proyecto</Th>
+                  <Th>Método</Th>
                   <Th derecha>Bruto</Th>
                   <Th derecha>%</Th>
                   <Th derecha>Comisión</Th>
@@ -132,9 +154,13 @@ export default function Movimientos() {
                     <Td>
                       <p className="font-medium text-slate-900">{nombresEmpresa.get(m.empresa_id) ?? "—"}</p>
                       <p className="text-xs text-slate-500">
-                        {nombresTerminal.get(m.terminal_id) ?? "—"}
+                        {nombresCliente.get(m.terminal_id) ?? "—"} · {nombresProyecto.get(m.proyecto_id) ?? "—"}
                         {m.observaciones && <span title={m.observaciones}> · {m.observaciones}</span>}
                       </p>
+                    </Td>
+                    <Td>
+                      <p className="whitespace-nowrap">{nombresMetodo.get(m.metodo_pago_id) ?? "—"}</p>
+                      {m.requiere_factura && <Insignia tono="info">Factura</Insignia>}
                     </Td>
                     <Td derecha><Monto valor={m.monto_bruto} /></Td>
                     <Td derecha><Insignia>{porcentaje(m.porcentaje_aplicado)}</Insignia></Td>
@@ -163,23 +189,23 @@ export default function Movimientos() {
       </Tarjeta>
 
       <CapturarMovimiento abierto={capturando} onCerrar={() => setCapturando(false)}
-        empresaInicial={filtros.empresa_id} terminalInicial={filtros.terminal_id} />
+        inicial={{ empresaId: filtros.empresa_id, clienteId: filtros.terminal_id, proyectoId: filtros.proyecto_id }} />
       <EditarMovimiento movimiento={editando} onCerrar={() => setEditando(null)} />
       <ConfirmarEliminacion
         abierto={eliminando !== null}
-        titulo="Eliminar movimiento"
+        titulo="Eliminar entrada"
         onCerrar={() => setEliminando(null)}
         onConfirmar={async (motivo) => {
           await api.delete(`/movimientos/${eliminando!.id}`, { motivo });
           invalidar();
-          avisar("Movimiento eliminado");
+          avisar("Entrada eliminada");
         }}
       >
         {eliminando && (
           <p>
-            Se eliminará el movimiento del <strong>{fecha(eliminando.fecha_movimiento)}</strong> por{" "}
-            <strong><Monto valor={eliminando.monto_bruto} /></strong> en la terminal{" "}
-            <strong>{nombresTerminal.get(eliminando.terminal_id)}</strong>. El saldo de la empresa se recalculará.
+            Se eliminará la entrada del <strong>{fecha(eliminando.fecha_movimiento)}</strong> por{" "}
+            <strong><Monto valor={eliminando.monto_bruto} /></strong> del proyecto{" "}
+            <strong>{nombresProyecto.get(eliminando.proyecto_id)}</strong>. Los saldos se recalcularán.
           </p>
         )}
       </ConfirmarEliminacion>

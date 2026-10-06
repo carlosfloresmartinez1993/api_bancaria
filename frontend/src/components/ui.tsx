@@ -353,3 +353,15 @@ export function Monto({ valor, resaltarNegativo = false }: { valor: string | num
     : new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(Number(valor));
   return <span className={cn("tabular-nums", resaltarNegativo && negativo && "font-medium text-rose-600")}>{texto}</span>;
 }
+
+// ------------------------------------------------------------------ iniciales
+/** Cuadro con las iniciales de un nombre (p. ej. "Mariscos El Güero" → "MG"). */
+export function Iniciales({ nombre, className }: { nombre: string; className?: string }) {
+  const palabras = nombre.split(/\s+/).filter((p) => p.length > 2);
+  const iniciales = (palabras.slice(0, 2).map((p) => p[0]).join("") || nombre.slice(0, 2)).toUpperCase();
+  return (
+    <div className={cn("flex shrink-0 items-center justify-center rounded-lg bg-teal-50 ring-1 ring-teal-100", className ?? "size-10")}>
+      <span className="text-sm font-semibold text-teal-700">{iniciales}</span>
+    </div>
+  );
+}

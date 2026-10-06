@@ -1,5 +1,4 @@
 import os
-import tempfile
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -36,7 +35,6 @@ os.environ["SECRET_KEY"] = "pruebas-" + "x" * 40
 os.environ["ENVIRONMENT"] = "test"
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 os.environ["SCHEDULER_ENABLED"] = "false"
-os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="uploads-test-")
 os.environ["SMTP_HOST"] = ""
 
 import pytest
@@ -47,9 +45,10 @@ from app.core.security import create_access_token, hash_password
 from app.db.base import Base
 from app.db.session import SessionLocal, engine
 from app.main import app
-from app.models import Rol, Usuario
+from app.models import MetodoPago, Rol, Usuario
 
 PASSWORD = "Secreta12345"
+METODOS = ("Transferencia", "Depósito", "Efectivo")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -63,6 +62,10 @@ def esquema():
 
 @pytest.fixture(autouse=True)
 def limpiar():
+    # Catálogo que en producción crea la migración 0002
+    with SessionLocal() as db:
+        db.add_all(MetodoPago(nombre=n) for n in METODOS)
+        db.commit()
     yield
     tablas = ", ".join(t.name for t in reversed(Base.metadata.sorted_tables))
     with engine.begin() as conn:
