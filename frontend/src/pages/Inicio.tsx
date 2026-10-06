@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
+import { AvanceDelDia } from "../components/AvanceDelDia";
 import { Icono } from "../components/Icono";
 import { CapturarMovimiento } from "../components/formularios/MovimientoForm";
 import { RegistrarSalida } from "../components/formularios/SalidaForm";
@@ -83,6 +84,12 @@ export default function Inicio() {
           {negativas.map((f) => String(f.empresa)).join(", ")}. Probablemente falta capturar alguna entrada.
         </div>
       )}
+        {esAdmin && (
+        <div className="mt-8">
+          <AvanceDelDia />
+        </div>
+      )}
+
 
       <div className="mt-8 grid gap-6 2xl:grid-cols-5">
         <Tarjeta className="2xl:col-span-3">
