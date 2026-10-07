@@ -64,6 +64,20 @@ Limitaciones del plan gratuito:
 - Por lo anterior, el cierre diario automático está desactivado (`SCHEDULER_ENABLED=false`);
   se puede enviar a mano desde **Reportes → Cierre diario**.
 
+## Calidad y mantenimiento
+
+- **Versiones fijadas**: `backend/requirements.txt` (generado con uv, ver `backend/README.md`) y
+  `frontend/package-lock.json`. Todas las instalaciones usan exactamente las mismas versiones.
+- **Integración continua** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): en cada `git push` y
+  *pull request*, GitHub aplica las migraciones a una base PostgreSQL vacía y verifica que coincidan con
+  los modelos, ejecuta las pruebas del backend, compila el frontend (revisando tipos) y construye la
+  imagen Docker. El resultado se ve en la pestaña **Actions** del repositorio.
+- **Render solo despliega si la CI pasa** (`autoDeployTrigger: checksPass` en `render.yaml`).
+- **Dependabot** ([`.github/dependabot.yml`](.github/dependabot.yml)): cada semana abre *pull requests*
+  con actualizaciones de Python, npm, acciones de GitHub e imágenes de Docker. Revisa que la CI pase
+  y únelos. Para recibir de inmediato los parches de seguridad, actívalo en GitHub →
+  **Settings → Code security → Dependabot alerts** y **Dependabot security updates**.
+
 ## Seguridad
 
 - Nunca subas `backend/.env`: contiene la `SECRET_KEY` y la conexión a la base de datos.

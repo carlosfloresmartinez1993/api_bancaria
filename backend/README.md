@@ -34,6 +34,29 @@ TEST_DATABASE_URL=postgresql+psycopg://banco:banco@localhost:5432/banco_test pyt
 
 Cubren autenticación, aislamiento entre contadores, cálculo de porcentajes por fecha, saldos por empresa/cliente/proyecto, métodos de pago, ediciones con bitácora, constructor de reportes, exportaciones y cierre diario.
 
+## Dependencias
+
+Las versiones están **fijadas** para que cada instalación (tu PC, las pruebas de GitHub y Render) use
+exactamente las mismas librerías:
+
+| Archivo | Para qué |
+|---|---|
+| `requirements.in` | Dependencias directas con rangos aceptados. **Es el que se edita.** |
+| `requirements.txt` | Generado: versiones exactas de todo (incluye dependencias indirectas). Lo usan Docker y Render. |
+| `requirements-dev.in` / `requirements-dev.txt` | Lo mismo, más las herramientas de pruebas. |
+
+Para agregar o actualizar una librería, edita el `.in` y regenera los `.txt` con [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv pip compile requirements.in --universal --python-version 3.13 -o requirements.txt
+uv pip compile requirements-dev.in --universal --python-version 3.13 -o requirements-dev.txt
+uv pip install -r requirements-dev.txt --python .venv/Scripts/python.exe   # Linux/macOS: .venv/bin/python
+pytest
+```
+
+Para subir todas a la última versión permitida, agrega `--upgrade` a los dos `uv pip compile`. Dependabot
+(ver el README principal) propone estas actualizaciones automáticamente cada semana.
+
 ## Estructura
 
 ```
