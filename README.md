@@ -10,7 +10,7 @@ genera reportes a la medida en Excel, PDF y CSV con bitácora de auditoría.
 |---|---|
 | [`backend/`](backend/) | API REST con FastAPI, SQLAlchemy 2, Alembic y PostgreSQL |
 | [`frontend/`](frontend/) | Interfaz web con React 19, TypeScript, Vite y Tailwind CSS v4 |
-| [`docs/`](docs/) | Manual de usuario |
+| [`docs/`](docs/) | Manual de usuario, reporte técnico de implementación (Word y PDF) y diagramas (entidad-relación, arquitectura, despliegue) |
 
 ## Requisitos
 
