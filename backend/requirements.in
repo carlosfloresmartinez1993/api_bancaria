@@ -2,9 +2,9 @@
 # NO instalar desde aquí: el archivo con versiones exactas es requirements.txt, que se genera con
 #   uv pip compile requirements.in --universal --python-version 3.13 -o requirements.txt
 # (ver "Dependencias" en el README).
-fastapi>=0.115
+fastapi>=0.142.2
 uvicorn[standard]>=0.30
-sqlalchemy>=2.0,<2.2
+sqlalchemy>=2.1.3,<2.2
 psycopg[binary]>=3.2
 alembic>=1.13
 pydantic>=2.7
