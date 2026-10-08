@@ -14,7 +14,8 @@ FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    FRONTEND_DIR=/app/static
+    FRONTEND_DIR=/app/static \
+    ARCHIVOS_DIR=/app/archivos
 
 WORKDIR /app
 RUN useradd --create-home --uid 1000 app
@@ -24,6 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
 COPY --from=frontend /frontend/dist ./static
+# Facturas con ALMACENAMIENTO=local. En producción conviene un bucket S3 (ver backend/README.md).
+RUN mkdir -p /app/archivos && chown app:app /app/archivos
 
 USER app
 EXPOSE 8000

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { ConfirmarEliminacion } from "../components/formularios/ConfirmarEliminacion";
+import { FacturaEntrada } from "../components/formularios/FacturaEntrada";
 import { CapturarMovimiento, EditarMovimiento } from "../components/formularios/MovimientoForm";
 import { Icono } from "../components/Icono";
 import { SelectorCliente, SelectorEmpresa, SelectorMetodoPago, SelectorProyecto, SelectorUsuario } from "../components/Selectores";
@@ -48,6 +49,7 @@ export default function Movimientos() {
   const [capturando, setCapturando] = useState(false);
   const [editando, setEditando] = useState<Movimiento | null>(null);
   const [eliminando, setEliminando] = useState<Movimiento | null>(null);
+  const [conFactura, setConFactura] = useState<Movimiento | null>(null);
 
   const { data, isLoading, error, isFetching } = useQuery({
     queryKey: ["movimientos", filtros, offset],
@@ -161,7 +163,14 @@ export default function Movimientos() {
                     </Td>
                     <Td>
                       <p className="whitespace-nowrap">{nombresMetodo.get(m.metodo_pago_id) ?? "—"}</p>
-                      {m.requiere_factura && <Insignia tono="info">Factura</Insignia>}
+                      {(m.requiere_factura || m.documento_nombre) && (
+                        <button type="button" onClick={() => setConFactura(m)} className="rounded-md hover:opacity-80"
+                          title={m.documento_nombre ? `Ver ${m.documento_nombre}` : "Subir la factura (PDF)"}>
+                          <Insignia tono={m.documento_nombre ? "exito" : "info"}>
+                            {m.documento_nombre ? (m.requiere_factura ? "Factura adjunta" : "PDF adjunto") : "Requiere factura"}
+                          </Insignia>
+                        </button>
+                      )}
                     </Td>
                     <Td derecha><Monto valor={m.monto_bruto} /></Td>
                     <Td derecha><Insignia>{porcentaje(m.porcentaje_aplicado)}</Insignia></Td>
@@ -172,6 +181,12 @@ export default function Movimientos() {
                       <p className="whitespace-nowrap text-xs text-slate-500">{fechaHoraLocal(m.fecha_captura)}</p>
                     </Td>
                     <Td className="whitespace-nowrap text-right">
+                      <Boton variante="fantasma" tamano="sm" onClick={() => setConFactura(m)}
+                        aria-label={m.documento_nombre ? "Ver factura" : "Subir factura"}
+                        title={m.documento_nombre ?? "Subir factura (PDF)"}
+                        className={m.documento_nombre ? "text-rose-600 hover:text-rose-700" : "text-slate-300 hover:text-slate-600"}>
+                        <Icono nombre="documento" className="size-4" />
+                      </Boton>
                       <Boton variante="fantasma" tamano="sm" onClick={() => setEditando(m)} aria-label="Corregir">
                         <Icono nombre="lapiz" className="size-4" />
                       </Boton>
@@ -192,6 +207,7 @@ export default function Movimientos() {
       <CapturarMovimiento abierto={capturando} onCerrar={() => setCapturando(false)}
         inicial={{ empresaId: filtros.empresa_id, clienteId: filtros.terminal_id, proyectoId: filtros.proyecto_id }} />
       <EditarMovimiento movimiento={editando} onCerrar={() => setEditando(null)} />
+      <FacturaEntrada movimiento={conFactura} onCerrar={() => setConFactura(null)} />
       <ConfirmarEliminacion
         abierto={eliminando !== null}
         titulo="Eliminar entrada"

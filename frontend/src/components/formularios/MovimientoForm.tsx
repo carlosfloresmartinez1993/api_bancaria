@@ -9,6 +9,7 @@ import { SelectorMetodoPago, SelectorProyecto } from "../Selectores";
 import { useToast } from "../Toast";
 import { Aviso, Boton, Campo, ErrorApi, Input, Modal, PieModal, Textarea } from "../ui";
 import { CADENA_VACIA, CadenaProyecto, type Cadena } from "./CadenaProyecto";
+import { MAX_FACTURA_MB, SelectorPdf, subirFactura } from "./FacturaEntrada";
 
 /** Método de pago que se propone por defecto: Transferencia si existe, si no el primero. */
 export function useMetodoPorDefecto(): string {
@@ -79,6 +80,7 @@ export function CapturarMovimiento({
   const [metodo, setMetodo] = useState("");
   const [factura, setFactura] = useState(false);
   const [observaciones, setObservaciones] = useState("");
+  const [pdf, setPdf] = useState<File | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [enviando, setEnviando] = useState(false);
 
@@ -109,11 +111,22 @@ export function CapturarMovimiento({
         requiere_factura: factura,
         observaciones: observaciones.trim() || null,
       });
+      let aviso = `Entrada capturada · neto ${dinero(mov.monto_neto)}`;
+      if (pdf) {
+        try {
+          await subirFactura(mov.id, pdf);
+          aviso += " · factura adjunta";
+        } catch (err) {
+          // La entrada ya quedó guardada: se avisa y la factura se puede subir después desde la tabla.
+          aviso += ` · la factura no se subió (${(err as Error).message}); súbela desde la tabla de Entradas`;
+        }
+      }
       invalidar();
-      avisar(`Entrada capturada · neto ${dinero(mov.monto_neto)}`);
+      avisar(aviso);
       setMonto("");
       setFactura(false);
       setObservaciones("");
+      setPdf(null);
       if (!otro) onCerrar();
     } catch (err) {
       setError(err);
@@ -143,6 +156,9 @@ export function CapturarMovimiento({
         </div>
         <VistaPrevia proyectoId={cadena.proyectoId} dia={dia} monto={monto} />
         <CasillaFactura valor={factura} onCambiar={setFactura} />
+        <Campo etiqueta="Factura (PDF)" ayuda={`Opcional. Máximo ${MAX_FACTURA_MB} MB; también se puede subir después.`}>
+          {(id) => <SelectorPdf id={id} archivo={pdf} onCambiar={setPdf} />}
+        </Campo>
         <Campo etiqueta="Observaciones">
           {(id) => <Textarea id={id} rows={2} maxLength={2000} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />}
         </Campo>

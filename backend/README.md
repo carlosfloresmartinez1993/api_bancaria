@@ -108,6 +108,29 @@ Calcula con una consulta los movimientos del día agrupados por contador, lo env
 - Manual por API: `POST /reportes/cierre-diario/enviar?fecha=AAAA-MM-DD&forzar=true`.
 - Un candado de PostgreSQL impide envíos duplicados si dos procesos lo intentan a la vez, y no se reenvía un día ya enviado salvo con `forzar`.
 
+## Facturas (PDF) de las entradas
+
+Cada entrada puede tener **una** factura en PDF (máximo `MAX_DOCUMENTO_MB`, 5 MB por defecto). Subir otra la reemplaza.
+La BD guarda solo la **clave** del archivo (`entradas/<id de la entrada>/<aleatorio>.pdf`), su nombre, tamaño y fecha;
+el archivo vive en el almacenamiento que elija `ALMACENAMIENTO`:
+
+| `ALMACENAMIENTO` | Dónde | Uso |
+|---|---|---|
+| `local` (por defecto) | carpeta `ARCHIVOS_DIR` (`./archivos`; en Docker `/app/archivos`) | desarrollo. En Render gratuito se borra en cada despliegue. |
+| `s3` | bucket compatible con S3: **Railway Buckets**, Supabase Storage, Cloudflare R2 o AWS S3 | producción |
+
+Variables para `s3`: `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT_URL` (vacío = AWS),
+`S3_REGION` (por defecto `auto`) y, opcional, `S3_PREFIJO` (carpeta dentro del bucket). Si falta alguna obligatoria,
+la aplicación no arranca y dice cuál. En Railway: crea un *Bucket* en el proyecto y, en las variables del
+servicio, asigna a cada `S3_*` el valor correspondiente que muestra el bucket (nombre, endpoint, región y llaves),
+de preferencia como referencia a la variable del bucket para que se actualice sola.
+
+- El bucket debe ser **privado**: el PDF se entrega por `GET /movimientos/{id}/documento` solo a quien puede ver la entrada.
+- Se valida que el contenido sea PDF (no basta la extensión) y el nombre se limpia (sin rutas del equipo del usuario).
+- Subir, reemplazar y quitar quedan en la bitácora (`SUBIR_DOCUMENTO`, `ELIMINAR_DOCUMENTO`). Al eliminar la entrada
+  se borra su archivo.
+- Para cambiar de proveedor, copia el contenido del bucket (o de la carpeta) al nuevo con las mismas claves; la BD no cambia.
+
 ## Endpoints
 
 | Grupo | Rutas |
@@ -118,7 +141,7 @@ Calcula con una consulta los movimientos del día agrupados por contador, lo env
 | Clientes (terminales) | `GET/POST /terminales`, `GET/PATCH /terminales/{id}`, `POST /terminales/{id}/activar`, `/desactivar`, `GET /terminales/{id}/saldo` |
 | Proyectos | `GET/POST /proyectos`, `GET/PATCH /proyectos/{id}`, `POST /proyectos/{id}/activar`, `/desactivar`, `GET/POST /proyectos/{id}/porcentajes`, `GET /proyectos/{id}/porcentaje-vigente`, `GET /proyectos/{id}/saldo` |
 | Métodos de pago | `GET /metodos-pago`, `POST /metodos-pago` y `PATCH /metodos-pago/{id}` (admin) |
-| Entradas | `GET/POST /movimientos`, `GET/PATCH/DELETE /movimientos/{id}` |
+| Entradas | `GET/POST /movimientos`, `GET/PATCH/DELETE /movimientos/{id}`, `PUT/GET/DELETE /movimientos/{id}/documento` (factura PDF) |
 | Salidas | `GET/POST /salidas`, `GET/PATCH/DELETE /salidas/{id}` |
 | Reportes | `/reportes/constructor` (empresa, `terminal_id`/`proyecto_id`/`metodo_pago_id` repetibles, `contenido`, `agrupar`, `requiere_factura`, `texto`), `saldos`, `estado-cuenta`, `conciliacion-diaria`, `resumen-mensual`, `auditoria-captura`, `bitacora`, `cierre-diario` |
 

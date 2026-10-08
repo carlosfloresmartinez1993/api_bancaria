@@ -38,6 +38,10 @@ services:
         value: Administrador
       - key: ADMIN_APELLIDOS
         value: General
+      # Facturas PDF: en el plan gratuito se guardan en el disco del contenedor y se borran en cada
+      # despliegue. Para conservarlas: ALMACENAMIENTO=s3 y las variables S3_* (ver backend/README.md).
+      - key: ALMACENAMIENTO
+        value: local
       # true = cargar los datos de prueba de app/seed.py (solo para demostraciones).
       - key: SEED_DEMO
         value: "false"

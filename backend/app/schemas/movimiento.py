@@ -41,3 +41,6 @@ class MovimientoOut(ORMModel):
     requiere_factura: bool
     fecha_captura: datetime
     observaciones: str | None
+    documento_nombre: str | None = None
+    documento_tamano_bytes: int | None = None
+    documento_subido_en: datetime | None = None

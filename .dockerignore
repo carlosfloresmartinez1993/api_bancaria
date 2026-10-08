@@ -12,4 +12,5 @@ docs
 **/*.pyc
 **/.pytest_cache
 backend/uploads
+backend/archivos
 backend/tests

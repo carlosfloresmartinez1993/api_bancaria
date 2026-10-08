@@ -2,7 +2,8 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Computed, Date, DateTime, ForeignKey, Index, Numeric, Text, false, func
+from sqlalchemy import (CheckConstraint, Computed, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text,
+                        false, func)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, UUIDPk
@@ -19,6 +20,11 @@ class Movimiento(UUIDPk, Base):
         CheckConstraint("porcentaje_aplicado >= 0 AND porcentaje_aplicado < 100", name="porcentaje_rango"),
         Index("ix_movimientos_proyecto_fecha", "proyecto_id", "fecha_movimiento"),
         Index("ix_movimientos_fecha", "fecha_movimiento"),
+        CheckConstraint(
+            "documento_clave IS NULL OR (documento_nombre IS NOT NULL AND documento_tamano_bytes > 0 "
+            "AND documento_subido_en IS NOT NULL)",
+            name="documento_completo",
+        ),
     )
 
     proyecto_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("proyectos.id", ondelete="RESTRICT"))
@@ -37,6 +43,12 @@ class Movimiento(UUIDPk, Base):
     requiere_factura: Mapped[bool] = mapped_column(default=False, server_default=false())
     fecha_captura: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     observaciones: Mapped[str | None] = mapped_column(Text)
+    # Factura u otro comprobante (PDF). La BD guarda solo la clave; el archivo vive en el
+    # almacenamiento configurado (carpeta local o bucket S3). Ver app/services/almacenamiento.py.
+    documento_clave: Mapped[str | None] = mapped_column(String(500))
+    documento_nombre: Mapped[str | None] = mapped_column(String(255))
+    documento_tamano_bytes: Mapped[int | None] = mapped_column(Integer)
+    documento_subido_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     proyecto: Mapped[Proyecto] = relationship()
     metodo_pago: Mapped[MetodoPago] = relationship()

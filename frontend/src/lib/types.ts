@@ -105,6 +105,10 @@ export interface Movimiento {
   requiere_factura: boolean;
   fecha_captura: string;
   observaciones: string | null;
+  /** Factura (PDF) adjunta; null si no tiene. */
+  documento_nombre: string | null;
+  documento_tamano_bytes: number | null;
+  documento_subido_en: string | null;
 }
 
 export interface Salida {

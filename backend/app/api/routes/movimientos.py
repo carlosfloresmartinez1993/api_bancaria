@@ -2,17 +2,20 @@ import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, File, Query, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from app.api.deps import DB, PaginacionDep, UsuarioActual
 from app.api.utils import cambios_no_nulos, paginar, validar_no_futura
-from app.core.errors import ReglaNegocio
+from app.core.errors import NoEncontrado, ReglaNegocio
+from app.core.tiempo import ahora
 from app.models import AccionBitacora, Movimiento, Proyecto, TerminalBancaria
 from app.schemas.comun import Pagina
 from app.schemas.movimiento import MovimientoActualizar, MovimientoCrear, MovimientoOut
 from app.services.acceso import clientes_propios, filtrar_empresa, mismo_grupo, obtener_movimiento, obtener_proyecto, unir_jerarquia
+from app.services import documentos
+from app.services.almacenamiento import almacenamiento
 from app.services.bitacora import instantanea, registrar
 from app.services.metodos_pago import validar_metodo_pago
 from app.services.porcentajes import porcentaje_vigente
@@ -146,8 +149,69 @@ def eliminar(movimiento_id: uuid.UUID, db: DB, usuario: UsuarioActual,
              motivo: Annotated[str | None, Query(max_length=500)] = None):
     """Elimina una captura duplicada o errónea. El registro completo queda en la bitácora."""
     movimiento = obtener_movimiento(db, usuario, movimiento_id)
-    antes = instantanea(movimiento, CAMPOS)
+    antes = instantanea(movimiento, CAMPOS + ("documento_nombre",))
+    clave = movimiento.documento_clave
     registrar(db, usuario_id=usuario.id, entidad="Movimiento", entidad_id=movimiento.id,
               accion=AccionBitacora.ELIMINAR_MOVIMIENTO, detalle={"antes": antes, "motivo": motivo})
     db.delete(movimiento)
     db.commit()
+    documentos.borrar_sin_fallar(clave)
+
+
+# ---------------------------------------------------------------- factura (PDF)
+@router.put("/{movimiento_id}/documento", response_model=MovimientoOut)
+async def subir_documento(movimiento_id: uuid.UUID, db: DB, usuario: UsuarioActual, archivo: UploadFile = File(...)):
+    """Adjunta la factura (PDF) de la entrada; si ya tenía una, la reemplaza. Queda en la bitácora."""
+    movimiento = obtener_movimiento(db, usuario, movimiento_id)
+    contenido = await documentos.leer_pdf(archivo)
+    nombre = documentos.nombre_limpio(archivo.filename)
+    anterior_clave, anterior_nombre = movimiento.documento_clave, movimiento.documento_nombre
+
+    clave = documentos.nueva_clave(movimiento.id)
+    almacenamiento().guardar(clave, contenido, "application/pdf")
+    try:
+        movimiento.documento_clave = clave
+        movimiento.documento_nombre = nombre
+        movimiento.documento_tamano_bytes = len(contenido)
+        movimiento.documento_subido_en = ahora()
+        registrar(db, usuario_id=usuario.id, entidad="Movimiento", entidad_id=movimiento.id,
+                  accion=AccionBitacora.SUBIR_DOCUMENTO,
+                  detalle={"nombre": nombre, "tamano_bytes": len(contenido), "clave": clave,
+                           **({"reemplaza": anterior_nombre} if anterior_nombre else {})})
+        db.commit()
+    except Exception:
+        db.rollback()
+        documentos.borrar_sin_fallar(clave)  # que no quede un archivo sin registro
+        raise
+    documentos.borrar_sin_fallar(anterior_clave)
+    return obtener_movimiento(db, usuario, movimiento_id)
+
+
+@router.get("/{movimiento_id}/documento", response_class=Response,
+            responses={200: {"content": {"application/pdf": {}}}})
+def descargar_documento(movimiento_id: uuid.UUID, db: DB, usuario: UsuarioActual):
+    """Entrega el PDF solo a quien puede ver la entrada (el almacenamiento nunca es público)."""
+    movimiento = obtener_movimiento(db, usuario, movimiento_id)
+    if not movimiento.documento_clave:
+        raise NoEncontrado("La entrada no tiene factura")
+    contenido = almacenamiento().leer(movimiento.documento_clave)
+    return Response(content=contenido, media_type="application/pdf",
+                    headers={"Content-Disposition": documentos.disposicion(movimiento.documento_nombre),
+                             "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
+
+
+@router.delete("/{movimiento_id}/documento", response_model=MovimientoOut)
+def eliminar_documento(movimiento_id: uuid.UUID, db: DB, usuario: UsuarioActual,
+                       motivo: Annotated[str | None, Query(max_length=500)] = None):
+    movimiento = obtener_movimiento(db, usuario, movimiento_id)
+    clave = movimiento.documento_clave
+    if not clave:
+        raise NoEncontrado("La entrada no tiene factura")
+    registrar(db, usuario_id=usuario.id, entidad="Movimiento", entidad_id=movimiento.id,
+              accion=AccionBitacora.ELIMINAR_DOCUMENTO,
+              detalle={"nombre": movimiento.documento_nombre, "clave": clave, "motivo": motivo})
+    movimiento.documento_clave = movimiento.documento_nombre = None
+    movimiento.documento_tamano_bytes = movimiento.documento_subido_en = None
+    db.commit()
+    documentos.borrar_sin_fallar(clave)
+    return obtener_movimiento(db, usuario, movimiento_id)
