@@ -66,6 +66,11 @@ EMPRESAS = [
     ("Boutique Coral", "Santander", 2, 3500),
 ]
 PROYECTOS = ["Proyecto Norte", "Proyecto Centro", "Proyecto Sur", "Mostrador", "Eventos", "Mayoreo"]
+# Clientes sin empresa: (índice del contador responsable, identificador, nombres de proyectos, venta típica)
+INDEPENDIENTES = [
+    (0, "Cliente libre 7001", ["Servicios", "Eventos"], 2500),
+    (3, "Cliente libre 7002", ["Mostrador"], 1800),
+]
 DESTINOS = [
     "Pago a proveedor",
     "Nómina quincenal",
@@ -150,7 +155,8 @@ def poblar() -> None:
             db.flush()
             proyectos_empresa = []
             for c in range(n_clientes):
-                terminal = TerminalBancaria(empresa_id=empresa.id, identificador_terminal=str(rnd.randint(1000, 9999)))
+                terminal = TerminalBancaria(empresa_id=empresa.id, usuario_id=dueno.id,
+                                            identificador_terminal=str(rnd.randint(1000, 9999)))
                 db.add(terminal)
                 db.flush()
                 for nombre_proyecto in rnd.sample(PROYECTOS, rnd.randint(1, 3)):
@@ -177,6 +183,22 @@ def poblar() -> None:
                       detalle={"anterior": pct, "nuevo": nuevo, "vigente_desde": cambio,
                                "movimientos_recalculados": 0, "motivo": "Ajuste de tarifa del banco"})
             empresas.append((empresa, dueno, venta, [p for p, _, _ in proyectos_empresa]))
+
+        # Clientes sin empresa (empresa = None en la lista, para reutilizar los mismos ciclos)
+        for i, identificador, nombres_proyectos, venta in INDEPENDIENTES:
+            dueno = contadores[i]
+            terminal = TerminalBancaria(empresa_id=None, usuario_id=dueno.id, identificador_terminal=identificador)
+            db.add(terminal)
+            db.flush()
+            proyectos_libres = []
+            for nombre_proyecto in nombres_proyectos:
+                proyecto = Proyecto(terminal_id=terminal.id, nombre=nombre_proyecto)
+                db.add(proyecto)
+                db.flush()
+                db.add(HistorialPorcentajeProyecto(proyecto_id=proyecto.id, porcentaje=dinero(rnd.choice([3, 4, 5])),
+                                                  fecha_inicio_vigencia=inicio))
+                proyectos_libres.append(proyecto)
+            empresas.append((None, dueno, venta, proyectos_libres))
         db.flush()
 
         # ---------------------------------------------------------- entradas
@@ -237,7 +259,7 @@ def poblar() -> None:
                         fecha_registro=momento(fecha, 12),
                     ))
             # Un proyecto de Boutique Coral queda en negativo a propósito, para probar la advertencia
-            if empresa.nombre == "Boutique Coral":
+            if empresa and empresa.nombre == "Boutique Coral":
                 db.flush()
                 proyecto = proyectos[0]
                 faltante = totales(db, proyecto_id=proyecto.id).saldo + Decimal("8500.00")
@@ -255,8 +277,12 @@ def poblar() -> None:
         print(f"\n  {'Empresa':<26}{'Contador':<28}{'Clientes':>9}{'Proyectos':>10}{'Saldo':>16}")
         for empresa, dueno, _, proyectos in empresas:
             clientes = len({p.terminal_id for p in proyectos})
-            saldo = totales(db, empresa_id=empresa.id).saldo
-            print(f"  {empresa.nombre:<26}{dueno.correo:<28}{clientes:>9}{len(proyectos):>10}{saldo:>16,.2f}")
+            if empresa:
+                saldo, nombre = totales(db, empresa_id=empresa.id).saldo, empresa.nombre
+            else:
+                saldo = sum((totales(db, terminal_id=t).saldo for t in {p.terminal_id for p in proyectos}), Decimal(0))
+                nombre = "(sin empresa)"
+            print(f"  {nombre:<26}{dueno.correo:<28}{clientes:>9}{len(proyectos):>10}{saldo:>16,.2f}")
         total_mov = db.scalar(select(func.count()).select_from(Movimiento))
         total_sal = db.scalar(select(func.count()).select_from(Salida))
         print(f"\n  {total_mov} entradas y {total_sal} salidas.\n")

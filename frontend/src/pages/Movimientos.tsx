@@ -25,6 +25,7 @@ import {
 } from "../components/ui";
 import { api } from "../lib/api";
 import { fecha, fechaHoraLocal, porcentaje } from "../lib/format";
+import { filtroEmpresa, nombreEmpresa } from "../lib/empresa";
 import { useFiltros } from "../lib/filtros";
 import { useInvalidarDinero } from "../lib/invalidar";
 import { useNombresEmpresa, useNombresMetodoPago, useNombresProyecto, useNombresTerminal, useNombresUsuario } from "../lib/queries";
@@ -50,7 +51,7 @@ export default function Movimientos() {
 
   const { data, isLoading, error, isFetching } = useQuery({
     queryKey: ["movimientos", filtros, offset],
-    queryFn: () => api.get<Pagina<Movimiento>>("/movimientos", { ...filtros, limit: LIMITE, offset }),
+    queryFn: () => api.get<Pagina<Movimiento>>("/movimientos", { ...filtros, empresa_id: undefined, ...filtroEmpresa(filtros.empresa_id), limit: LIMITE, offset }),
     placeholderData: keepPreviousData,
   });
 
@@ -74,7 +75,7 @@ export default function Movimientos() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo etiqueta="Empresa">
             {(id) => (
-              <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas"
+              <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas" conSinEmpresa
                 onCambiar={(v) => cambiar({ empresa_id: v, terminal_id: "", proyecto_id: "" })} />
             )}
           </Campo>
@@ -152,7 +153,7 @@ export default function Movimientos() {
                   <tr key={m.id} className="hover:bg-slate-50">
                     <Td className="whitespace-nowrap">{fecha(m.fecha_movimiento)}</Td>
                     <Td>
-                      <p className="font-medium text-slate-900">{nombresEmpresa.get(m.empresa_id) ?? "—"}</p>
+                      <p className="font-medium text-slate-900">{nombreEmpresa(nombresEmpresa, m.empresa_id)}</p>
                       <p className="text-xs text-slate-500">
                         {nombresCliente.get(m.terminal_id) ?? "—"} · {nombresProyecto.get(m.proyecto_id) ?? "—"}
                         {m.observaciones && <span title={m.observaciones}> · {m.observaciones}</span>}

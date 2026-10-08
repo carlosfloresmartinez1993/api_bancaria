@@ -1,7 +1,7 @@
 // Tipos que reflejan los esquemas Pydantic del backend.
 // Los montos llegan como texto ("1234.50") para no perder precisión.
 //
-// Jerarquía: Empresa → Cliente (en la API, "terminal") → Proyecto (con su % de comisión).
+// Jerarquía: Empresa (opcional) → Cliente (en la API, "terminal") → Proyecto (con su % de comisión).
 
 export type Rol = "admin" | "contador";
 
@@ -49,10 +49,11 @@ export interface Saldo {
   saldo: string;
 }
 
-/** Cliente: en la API se llama "terminal". */
+/** Cliente: en la API se llama "terminal". Puede no tener empresa; siempre tiene responsable. */
 export interface Terminal {
   id: string;
-  empresa_id: string;
+  empresa_id: string | null;
+  usuario_id: string;
   identificador_terminal: string;
   activa: boolean;
   fecha_registro: string;
@@ -62,7 +63,7 @@ export interface Terminal {
 export interface Proyecto {
   id: string;
   terminal_id: string;
-  empresa_id: string;
+  empresa_id: string | null;
   nombre: string;
   activo: boolean;
   fecha_registro: string;
@@ -93,7 +94,7 @@ export interface Movimiento {
   id: string;
   proyecto_id: string;
   terminal_id: string;
-  empresa_id: string;
+  empresa_id: string | null;
   usuario_id: string;
   metodo_pago_id: string;
   fecha_movimiento: string;
@@ -110,7 +111,7 @@ export interface Salida {
   id: string;
   proyecto_id: string;
   terminal_id: string;
-  empresa_id: string;
+  empresa_id: string | null;
   usuario_id: string;
   metodo_pago_id: string;
   monto: string;
@@ -123,8 +124,21 @@ export interface Salida {
 export interface SalidaRegistrada {
   salida: Salida;
   saldo_proyecto: string;
-  saldo_empresa: string;
+  saldo_empresa: string | null;
   advertencia: string | null;
+}
+
+/** Un cambio de empresa de un cliente (historial). */
+export interface MovimientoCliente {
+  id: string;
+  fecha: string;
+  realizado_por: string;
+  empresa_antes: string;
+  empresa_despues: string;
+  saldo_movido: string | null;
+  motivo: string | null;
+  es_reversion: boolean;
+  se_puede_revertir: boolean;
 }
 
 export interface Reporte {
@@ -143,6 +157,8 @@ export const ACCIONES_BITACORA = [
   "ACTIVAR",
   "DESACTIVAR",
   "REASIGNAR_EMPRESA",
+  "MOVER_CLIENTE",
+  "REASIGNAR_CLIENTE",
   "CAMBIO_PORCENTAJE",
   "EDITAR_MOVIMIENTO",
   "ELIMINAR_MOVIMIENTO",

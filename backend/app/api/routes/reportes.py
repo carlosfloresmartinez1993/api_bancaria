@@ -42,8 +42,9 @@ def responder(reporte: Reporte, formato: Formato, nombre: str, usuario: Usuario)
     )
 
 
-def _alcance(db, usuario: Usuario, empresa_id: uuid.UUID | None, terminal_id: list[uuid.UUID] | None,
-             proyecto_id: list[uuid.UUID] | None, metodo_pago_id: list[uuid.UUID] | None) -> Alcance:
+def _alcance(db, usuario: Usuario, empresa_id: uuid.UUID | None, sin_empresa: bool | None,
+             terminal_id: list[uuid.UUID] | None, proyecto_id: list[uuid.UUID] | None,
+             metodo_pago_id: list[uuid.UUID] | None) -> Alcance:
     """Valida que el usuario tenga acceso a cada elemento elegido (404 si alguno no es suyo)."""
     if empresa_id:
         obtener_empresa(db, usuario, empresa_id)
@@ -51,8 +52,8 @@ def _alcance(db, usuario: Usuario, empresa_id: uuid.UUID | None, terminal_id: li
         obtener_terminal(db, usuario, t)
     for p in proyecto_id or []:
         obtener_proyecto(db, usuario, p)
-    return Alcance(empresa_id=empresa_id, terminal_ids=terminal_id or [], proyecto_ids=proyecto_id or [],
-                   metodo_pago_ids=metodo_pago_id or [])
+    return Alcance(empresa_id=empresa_id, sin_empresa=bool(sin_empresa), terminal_ids=terminal_id or [],
+                   proyecto_ids=proyecto_id or [], metodo_pago_ids=metodo_pago_id or [])
 
 
 DOC = {"response_model": ReporteOut, "responses": {200: {"content": {m: {} for m in MEDIA.values()}}}}
@@ -63,6 +64,7 @@ def constructor(
     db: DB,
     usuario: UsuarioActual,
     empresa_id: uuid.UUID | None = None,
+    sin_empresa: Annotated[bool | None, Query(description="Solo clientes sin empresa")] = None,
     terminal_id: Ids = None,
     proyecto_id: Ids = None,
     metodo_pago_id: Ids = None,
@@ -74,7 +76,7 @@ def constructor(
     texto: Annotated[str | None, Query(max_length=100)] = None,
     formato: FormatoQ = Formato.JSON,
 ):
-    alcance = _alcance(db, usuario, empresa_id, terminal_id, proyecto_id, metodo_pago_id)
+    alcance = _alcance(db, usuario, empresa_id, sin_empresa, terminal_id, proyecto_id, metodo_pago_id)
     reporte = svc.constructor(db, usuario, alcance=alcance, desde=desde, hasta=hasta, contenido=contenido,
                               agrupar=agrupar, requiere_factura=requiere_factura, texto=texto)
     return responder(reporte, formato, f"reporte-{agrupar.value}", usuario)
@@ -86,26 +88,28 @@ def saldos(db: DB, usuario: UsuarioActual, al_dia: date | None = None, formato: 
 
 
 @router.get("/estado-cuenta", **DOC, summary="Estado de cuenta con saldo corrido")
-def estado_cuenta(db: DB, usuario: UsuarioActual, empresa_id: uuid.UUID, desde: date, hasta: date,
-                  terminal_id: Ids = None, proyecto_id: Ids = None, metodo_pago_id: Ids = None,
-                  formato: FormatoQ = Formato.JSON):
-    alcance = _alcance(db, usuario, empresa_id, terminal_id, proyecto_id, metodo_pago_id)
+def estado_cuenta(db: DB, usuario: UsuarioActual, desde: date, hasta: date, empresa_id: uuid.UUID | None = None,
+                  sin_empresa: bool | None = None, terminal_id: Ids = None, proyecto_id: Ids = None,
+                  metodo_pago_id: Ids = None, formato: FormatoQ = Formato.JSON):
+    alcance = _alcance(db, usuario, empresa_id, sin_empresa, terminal_id, proyecto_id, metodo_pago_id)
     reporte = svc.estado_cuenta(db, usuario, alcance=alcance, desde=desde, hasta=hasta)
     return responder(reporte, formato, "estado-cuenta", usuario)
 
 
 @router.get("/conciliacion-diaria", **DOC, summary="Conciliación diaria por cliente y proyecto")
 def conciliacion_diaria(db: DB, usuario: UsuarioActual, fecha: date, empresa_id: uuid.UUID | None = None,
-                        terminal_id: Ids = None, proyecto_id: Ids = None, formato: FormatoQ = Formato.JSON):
-    alcance = _alcance(db, usuario, empresa_id, terminal_id, proyecto_id, None)
+                        sin_empresa: bool | None = None, terminal_id: Ids = None, proyecto_id: Ids = None,
+                        formato: FormatoQ = Formato.JSON):
+    alcance = _alcance(db, usuario, empresa_id, sin_empresa, terminal_id, proyecto_id, None)
     return responder(svc.conciliacion_diaria(db, usuario, fecha, alcance), formato, "conciliacion", usuario)
 
 
 @router.get("/resumen-mensual", **DOC, summary="Resumen mensual/anual por empresa (admin)")
 def resumen_mensual(db: DB, admin: Admin, anio: Annotated[int, Query(ge=2000, le=2100)],
                     mes: Annotated[int | None, Query(ge=1, le=12)] = None, empresa_id: uuid.UUID | None = None,
-                    formato: FormatoQ = Formato.JSON):
-    return responder(svc.resumen_mensual(db, admin, anio, mes, empresa_id), formato, "resumen", admin)
+                    sin_empresa: bool | None = None, formato: FormatoQ = Formato.JSON):
+    reporte = svc.resumen_mensual(db, admin, anio, mes, empresa_id, bool(sin_empresa))
+    return responder(reporte, formato, "resumen", admin)
 
 
 @router.get("/auditoria-captura", **DOC, summary="Auditoría de captura por contador (admin)")

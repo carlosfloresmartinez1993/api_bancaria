@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { fecha, hoyISO } from "../lib/format";
-import { useEmpresasCatalogo, useProyectosCatalogo, useTerminalesCatalogo, useUsuariosCatalogo } from "../lib/queries";
+import { useProyectosCatalogo, useTerminalesCatalogo, useUsuariosCatalogo } from "../lib/queries";
 import type { Movimiento, Pagina } from "../lib/types";
 import { Cargando, ErrorApi, Insignia, Tabla, Tarjeta, Td, Th } from "./ui";
 
@@ -19,11 +19,10 @@ async function entradasDeHoy(): Promise<Movimiento[]> {
 /**
  * Avance del día por trabajador (solo para admins).
  * Un proyecto está "procesado" si tiene al menos una entrada con fecha de hoy.
- * Cada contador responde por los proyectos activos de sus empresas.
+ * Cada contador responde por los proyectos activos de sus clientes (con o sin empresa).
  */
 export function AvanceDelDia() {
   const usuarios = useUsuariosCatalogo();
-  const empresas = useEmpresasCatalogo();
   const clientes = useTerminalesCatalogo();
   const proyectos = useProyectosCatalogo();
   const hoy = useQuery({
@@ -32,11 +31,11 @@ export function AvanceDelDia() {
     refetchInterval: 60_000, // se actualiza solo cada minuto
   });
 
-  const consultas = [usuarios, empresas, clientes, proyectos, hoy];
+  const consultas = [usuarios, clientes, proyectos, hoy];
   const error = consultas.find((q) => q.error)?.error;
   const cargando = consultas.some((q) => q.isLoading);
 
-  const duenoDeEmpresa = new Map((empresas.data ?? []).map((e) => [e.id, e.usuario_id]));
+  const responsableDeCliente = new Map((clientes.data ?? []).map((c) => [c.id, c.usuario_id]));
   const clienteActivo = new Map((clientes.data ?? []).map((c) => [c.id, c.activa]));
   const conEntradaHoy = new Set((hoy.data ?? []).map((m) => m.proyecto_id));
 
@@ -44,7 +43,7 @@ export function AvanceDelDia() {
     .filter((u) => u.rol === "contador" && u.activo)
     .map((u) => {
       const suyos = (proyectos.data ?? []).filter(
-        (p) => p.activo && clienteActivo.get(p.terminal_id) && duenoDeEmpresa.get(p.empresa_id) === u.id,
+        (p) => p.activo && clienteActivo.get(p.terminal_id) && responsableDeCliente.get(p.terminal_id) === u.id,
       );
       const procesados = suyos.filter((p) => conEntradaHoy.has(p.id)).length;
       return {

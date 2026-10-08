@@ -30,7 +30,7 @@ class SalidaOut(ORMModel):
     id: uuid.UUID
     proyecto_id: uuid.UUID
     terminal_id: uuid.UUID
-    empresa_id: uuid.UUID
+    empresa_id: uuid.UUID | None
     usuario_id: uuid.UUID
     metodo_pago_id: uuid.UUID
     monto: Decimal
@@ -43,5 +43,5 @@ class SalidaOut(ORMModel):
 class SalidaRegistrada(BaseModel):
     salida: SalidaOut
     saldo_proyecto: Decimal
-    saldo_empresa: Decimal
+    saldo_empresa: Decimal | None = None  # nulo si el cliente no tiene empresa
     advertencia: str | None = None

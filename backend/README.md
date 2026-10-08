@@ -76,8 +76,9 @@ tests/
 
 ## Reglas de negocio implementadas
 
-- **Jerarquía**: Empresa → Cliente (terminal, en la API `/terminales`) → Proyecto. Solo el nombre de la empresa es obligatorio. Entradas y salidas siempre pertenecen a un proyecto.
-- **Acceso**: cada empresa guarda en `usuario_id` quién la registró. Un contador solo ve y opera sus empresas y, por extensión, sus clientes, proyectos, entradas y salidas. Un recurso ajeno responde **404** para no revelar que existe. El admin ve todo y puede reasignar empresas.
+- **Jerarquía**: Empresa (opcional) → Cliente (terminal, en la API `/terminales`) → Proyecto. Solo el nombre de la empresa es obligatorio. Entradas y salidas siempre pertenecen a un proyecto.
+- **Clientes sin empresa**: un cliente puede no tener empresa. Cada cliente tiene un responsable (`usuario_id`): el de su empresa (una llave compuesta lo garantiza y lo actualiza en cascada al reasignar la empresa) o, sin empresa, el contador que lo registró. En reportes e inicio aparecen como «Sin empresa». Un cliente se puede asociar a una empresa o quitársela (`POST /terminales/{id}/empresa`), con historial (`GET /terminales/{id}/historial-empresa`) y reversión del último cambio (`POST /terminales/{id}/revertir-movimiento`); todo queda en la bitácora (`MOVER_CLIENTE`).
+- **Acceso**: un contador ve sus empresas y los clientes de los que es responsable (con o sin empresa) y, por extensión, sus proyectos, entradas y salidas. Un recurso ajeno responde **404** para no revelar que existe. El admin ve todo y puede reasignar empresas.
 - **Porcentaje**: se aplica el vigente en la **fecha del movimiento** (no el de la captura), tomado del historial del **proyecto** (`HistorialPorcentajeProyecto`), y se guarda en `porcentaje_aplicado`. Un cambio de % con fecha pasada recalcula los movimientos desde esa fecha. No se pueden reescribir periodos anteriores al vigente.
 - **Neto**: `monto_neto` es una columna generada por PostgreSQL; la API nunca lo escribe.
 - **Saldo**: no se almacena. `saldo = Σ netos − Σ salidas`, calculado al consultar por proyecto, cliente o empresa (`/proyectos|terminales|empresas/{id}/saldo`).

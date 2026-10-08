@@ -170,8 +170,10 @@ export function EditarSalida({ salida, onCerrar }: { salida: Salida | null; onCe
   return (
     <Modal abierto ancho="lg" titulo="Corregir salida" descripcion="El cambio queda registrado en la bitácora." onCerrar={onCerrar}>
       <form onSubmit={guardar} className="space-y-4">
-        <Campo etiqueta="Proyecto" ayuda="Se puede mover a otro proyecto activo de la misma empresa.">
-          {(id) => <SelectorProyecto id={id} valor={proyectoId} onCambiar={setProyectoId} empresaId={salida.empresa_id} />}
+        <Campo etiqueta="Proyecto" ayuda="Se puede mover a otro proyecto activo de la misma empresa (o del mismo cliente, si no tiene empresa).">
+          {(id) => <SelectorProyecto id={id} valor={proyectoId} onCambiar={setProyectoId}
+            empresaId={salida.empresa_id ?? undefined}
+            terminalId={salida.empresa_id ? undefined : salida.terminal_id} />}
         </Campo>
         <div className="grid gap-4 sm:grid-cols-3">
           <Campo etiqueta="Monto">

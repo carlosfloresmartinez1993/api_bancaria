@@ -9,6 +9,7 @@ import { Aviso, Boton, Campo, Cargando, EncabezadoPagina, ErrorApi, Input, Selec
 import { api, guardarBlob, type Query } from "../lib/api";
 import { cn } from "../lib/cn";
 import { dinero, entero, fecha, fechaHoraLocal, hoyISO, porcentaje, primerDiaMesISO } from "../lib/format";
+import { filtroEmpresa } from "../lib/empresa";
 import { useProyectosCatalogo, useTerminalesCatalogo } from "../lib/queries";
 import { ACCIONES_BITACORA, type Reporte } from "../lib/types";
 
@@ -158,7 +159,7 @@ function ControlParam({ p, valor, onCambiar }: { p: Param; valor: string; onCamb
           case "fecha":
             return <Input id={id} type="date" value={valor} onChange={(e) => onCambiar(e.target.value)} />;
           case "empresa":
-            return <SelectorEmpresa id={id} valor={valor} onCambiar={onCambiar} vacio={p.requerido ? undefined : "Todas"} />;
+            return <SelectorEmpresa id={id} valor={valor} onCambiar={onCambiar} conSinEmpresa vacio={p.requerido ? undefined : "Todas"} />;
           case "usuario":
             return <SelectorUsuario id={id} valor={valor} onCambiar={onCambiar} vacio="Todos" />;
           case "metodo":
@@ -350,7 +351,8 @@ export default function Reportes() {
   const texto = (k: string) => (typeof valores[k] === "string" ? (valores[k] as string) : "");
   const lista = (k: string) => (Array.isArray(valores[k]) ? (valores[k] as string[]) : []);
   const faltan = def.params.filter((p) => p.requerido && !texto(p.nombre));
-  const query: Query = { ...valores };
+  // "Sin empresa" viaja como sin_empresa=true (empresa_id solo acepta ids reales).
+  const query: Query = { ...valores, empresa_id: undefined, ...filtroEmpresa(texto("empresa_id")) };
   if (texto("metodo_pago_id")) query.metodo_pago_id = [texto("metodo_pago_id")];
 
   const reporte = useQuery({

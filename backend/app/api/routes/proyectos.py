@@ -20,7 +20,7 @@ from app.schemas.proyecto import (
     ProyectoCrear,
     ProyectoOut,
 )
-from app.services.acceso import obtener_proyecto, obtener_terminal, solo_propias
+from app.services.acceso import clientes_propios, filtrar_empresa, obtener_proyecto, obtener_terminal
 from app.services.bitacora import registrar
 from app.services.porcentajes import cambiar_porcentaje, condicion_vigente, crear_porcentaje_inicial, porcentaje_vigente
 from app.services.saldos import totales
@@ -46,17 +46,16 @@ def _salida(db: Session, proyecto: Proyecto) -> ProyectoOut:
 
 @router.get("", response_model=Pagina[ProyectoOut])
 def listar(db: DB, usuario: UsuarioActual, pag: PaginacionDep, empresa_id: uuid.UUID | None = None,
-           terminal_id: uuid.UUID | None = None, activo: bool | None = None):
-    stmt = solo_propias(
+           sin_empresa: bool | None = None, terminal_id: uuid.UUID | None = None, activo: bool | None = None):
+    stmt = clientes_propios(
         select(Proyecto, Historial.porcentaje)
         .join(TerminalBancaria, Proyecto.terminal_id == TerminalBancaria.id)
-        .join(Empresa, TerminalBancaria.empresa_id == Empresa.id)
+        .outerjoin(Empresa, TerminalBancaria.empresa_id == Empresa.id)
         .outerjoin(Historial, and_(Historial.proyecto_id == Proyecto.id, *condicion_vigente(hoy())))
         .options(joinedload(Proyecto.terminal)),
         usuario,
-    ).order_by(Empresa.nombre, TerminalBancaria.identificador_terminal, Proyecto.nombre)
-    if empresa_id:
-        stmt = stmt.where(TerminalBancaria.empresa_id == empresa_id)
+    ).order_by(Empresa.nombre.nulls_last(), TerminalBancaria.identificador_terminal, Proyecto.nombre)
+    stmt = filtrar_empresa(stmt, empresa_id, sin_empresa)
     if terminal_id:
         stmt = stmt.where(Proyecto.terminal_id == terminal_id)
     if activo is not None:

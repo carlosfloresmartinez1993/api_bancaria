@@ -220,8 +220,10 @@ export function EditarMovimiento({ movimiento, onCerrar }: { movimiento: Movimie
     <Modal abierto ancho="lg" titulo="Corregir entrada" descripcion="El cambio queda registrado en la bitácora con su estado anterior."
       onCerrar={onCerrar}>
       <form onSubmit={guardar} className="space-y-4">
-        <Campo etiqueta="Proyecto" ayuda="Se puede mover a otro proyecto activo de la misma empresa.">
-          {(id) => <SelectorProyecto id={id} valor={proyectoId} onCambiar={setProyectoId} empresaId={movimiento.empresa_id} />}
+        <Campo etiqueta="Proyecto" ayuda="Se puede mover a otro proyecto activo de la misma empresa (o del mismo cliente, si no tiene empresa).">
+          {(id) => <SelectorProyecto id={id} valor={proyectoId} onCambiar={setProyectoId}
+            empresaId={movimiento.empresa_id ?? undefined}
+            terminalId={movimiento.empresa_id ? undefined : movimiento.terminal_id} />}
         </Campo>
         <div className="grid gap-4 sm:grid-cols-3">
           <Campo etiqueta="Fecha">

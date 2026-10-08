@@ -30,7 +30,7 @@ class MovimientoOut(ORMModel):
     id: uuid.UUID
     proyecto_id: uuid.UUID
     terminal_id: uuid.UUID
-    empresa_id: uuid.UUID
+    empresa_id: uuid.UUID | None
     usuario_id: uuid.UUID
     metodo_pago_id: uuid.UUID
     fecha_movimiento: date

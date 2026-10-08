@@ -28,7 +28,7 @@ export function CadenaProyecto({ valor, onCambiar }: { valor: Cadena; onCambiar:
     <div className="grid gap-4 sm:grid-cols-3">
       <Campo etiqueta="Empresa" requerido>
         {(id) => (
-          <SelectorEmpresa id={id} required valor={valor.empresaId}
+          <SelectorEmpresa id={id} required conSinEmpresa valor={valor.empresaId}
             onCambiar={(empresaId) => onCambiar({ empresaId, clienteId: "", proyectoId: "" })} />
         )}
       </Campo>

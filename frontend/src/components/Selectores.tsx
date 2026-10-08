@@ -1,4 +1,5 @@
 import { useEffect, type SelectHTMLAttributes } from "react";
+import { SIN_EMPRESA, TEXTO_SIN_EMPRESA } from "../lib/empresa";
 import { porcentaje } from "../lib/format";
 import {
   useEmpresasCatalogo,
@@ -23,11 +24,13 @@ function Opcion0({ vacio, texto }: { vacio?: string; texto: string }) {
   return vacio !== undefined ? <option value="">{vacio}</option> : <option value="" disabled>{texto}</option>;
 }
 
-export function SelectorEmpresa({ valor, onCambiar, vacio, ...props }: Props) {
+/** Con `conSinEmpresa` se ofrece también "Sin empresa" (valor SIN_EMPRESA), para clientes sin empresa. */
+export function SelectorEmpresa({ valor, onCambiar, vacio, conSinEmpresa = false, ...props }: Props & { conSinEmpresa?: boolean }) {
   const { data, isLoading } = useEmpresasCatalogo();
   return (
     <Select value={valor} onChange={(e) => onCambiar(e.target.value)} disabled={isLoading || props.disabled} {...props}>
       <Opcion0 vacio={vacio} texto="Selecciona una empresa" />
+      {conSinEmpresa && <option value={SIN_EMPRESA}>— {TEXTO_SIN_EMPRESA} —</option>}
       {data?.map((e) => (
         <option key={e.id} value={e.id}>
           {e.nombre}
@@ -55,7 +58,7 @@ export function SelectorCliente({
       {clientes.map((t) => (
         <option key={t.id} value={t.id}>
           {t.identificador_terminal}
-          {!empresaId && nombres.get(t.empresa_id) ? ` — ${nombres.get(t.empresa_id)}` : ""}
+          {!empresaId ? ` — ${t.empresa_id ? (nombres.get(t.empresa_id) ?? "") : TEXTO_SIN_EMPRESA.toLowerCase()}` : ""}
           {!t.activa ? " (inactivo)" : ""}
         </option>
       ))}

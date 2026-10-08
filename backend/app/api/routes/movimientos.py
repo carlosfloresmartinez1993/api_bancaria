@@ -9,10 +9,10 @@ from sqlalchemy.orm import joinedload
 from app.api.deps import DB, PaginacionDep, UsuarioActual
 from app.api.utils import cambios_no_nulos, paginar, validar_no_futura
 from app.core.errors import ReglaNegocio
-from app.models import AccionBitacora, Empresa, Movimiento, Proyecto, TerminalBancaria
+from app.models import AccionBitacora, Movimiento, Proyecto, TerminalBancaria
 from app.schemas.comun import Pagina
 from app.schemas.movimiento import MovimientoActualizar, MovimientoCrear, MovimientoOut
-from app.services.acceso import obtener_movimiento, obtener_proyecto, solo_propias, unir_jerarquia
+from app.services.acceso import clientes_propios, filtrar_empresa, mismo_grupo, obtener_movimiento, obtener_proyecto, unir_jerarquia
 from app.services.bitacora import instantanea, registrar
 from app.services.metodos_pago import validar_metodo_pago
 from app.services.porcentajes import porcentaje_vigente
@@ -37,6 +37,7 @@ def listar(
     usuario: UsuarioActual,
     pag: PaginacionDep,
     empresa_id: uuid.UUID | None = None,
+    sin_empresa: bool | None = None,
     terminal_id: uuid.UUID | None = None,
     proyecto_id: uuid.UUID | None = None,
     metodo_pago_id: uuid.UUID | None = None,
@@ -46,14 +47,13 @@ def listar(
     hasta: date | None = None,
 ):
     validar_rango(desde, hasta)
-    stmt = solo_propias(
+    stmt = clientes_propios(
         unir_jerarquia(select(Movimiento), Movimiento.proyecto_id).options(
             joinedload(Movimiento.proyecto).joinedload(Proyecto.terminal)
         ),
         usuario,
     ).order_by(Movimiento.fecha_movimiento.desc(), Movimiento.fecha_captura.desc())
-    if empresa_id:
-        stmt = stmt.where(Empresa.id == empresa_id)
+    stmt = filtrar_empresa(stmt, empresa_id, sin_empresa)
     if terminal_id:
         stmt = stmt.where(TerminalBancaria.id == terminal_id)
     if proyecto_id:
@@ -113,8 +113,9 @@ def corregir(movimiento_id: uuid.UUID, datos: MovimientoActualizar, db: DB, usua
     nuevo_proyecto = cambios.get("proyecto_id", movimiento.proyecto_id)
     if nuevo_proyecto != movimiento.proyecto_id:
         destino = obtener_proyecto(db, usuario, nuevo_proyecto)
-        if destino.terminal.empresa_id != movimiento.empresa_id:
-            raise ReglaNegocio("Solo se puede mover el registro a otro proyecto de la misma empresa")
+        if not mismo_grupo(destino.terminal, movimiento.proyecto.terminal):
+            raise ReglaNegocio("Solo se puede mover el registro a otro proyecto de la misma empresa "
+                               "(o del mismo cliente, si no tiene empresa)")
         _validar_proyecto_activo(destino)
     if "fecha_movimiento" in cambios:
         validar_no_futura(cambios["fecha_movimiento"], "fecha del movimiento")

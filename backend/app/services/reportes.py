@@ -32,7 +32,7 @@ from app.models import (
     TerminalBancaria as Terminal,
     Usuario,
 )
-from app.services.acceso import solo_propias, unir_jerarquia
+from app.services.acceso import SIN_EMPRESA, clientes_propios, solo_propias, unir_jerarquia
 from app.services.exportacion import Reporte
 from app.services.saldos import CERO
 
@@ -40,6 +40,8 @@ COMISION = (Mov.monto_bruto - Mov.monto_neto)
 MESES = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
          "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 NOMBRE_USUARIO = (Usuario.nombre + " " + Usuario.apellidos)
+# Los clientes sin empresa se agrupan bajo «Sin empresa».
+NOMBRE_EMPRESA = func.coalesce(Empresa.nombre, SIN_EMPRESA)
 
 
 # ---------------------------------------------------------------- utilidades
@@ -75,12 +77,12 @@ def _fecha_local(columna):
 
 def _movs(usuario: Usuario, *columnas):
     """Entradas con su proyecto, cliente y empresa, filtradas por propiedad."""
-    return solo_propias(unir_jerarquia(select(*columnas).select_from(Mov), Mov.proyecto_id), usuario)
+    return clientes_propios(unir_jerarquia(select(*columnas).select_from(Mov), Mov.proyecto_id), usuario)
 
 
 def _sals(usuario: Usuario, *columnas):
     """Salidas con su proyecto, cliente y empresa, filtradas por propiedad."""
-    return solo_propias(unir_jerarquia(select(*columnas).select_from(Salida), Salida.proyecto_id), usuario)
+    return clientes_propios(unir_jerarquia(select(*columnas).select_from(Salida), Salida.proyecto_id), usuario)
 
 
 @dataclass
@@ -88,13 +90,16 @@ class Alcance:
     """Qué parte de la jerarquía abarca un reporte. Listas vacías = todos."""
 
     empresa_id: uuid.UUID | None = None
+    sin_empresa: bool = False
     terminal_ids: list[uuid.UUID] = field(default_factory=list)
     proyecto_ids: list[uuid.UUID] = field(default_factory=list)
     metodo_pago_ids: list[uuid.UUID] = field(default_factory=list)
 
     def aplicar(self, stmt, metodo_col):
         if self.empresa_id:
-            stmt = stmt.where(Empresa.id == self.empresa_id)
+            stmt = stmt.where(Terminal.empresa_id == self.empresa_id)
+        if self.sin_empresa:
+            stmt = stmt.where(Terminal.empresa_id.is_(None))
         if self.terminal_ids:
             stmt = stmt.where(Terminal.id.in_(self.terminal_ids))
         if self.proyecto_ids:
@@ -109,7 +114,8 @@ def _descripcion_alcance(db: Session, alcance: Alcance) -> dict[str, Any]:
     def nombres(modelo, columna, ids):
         return ", ".join(db.scalars(select(columna).where(modelo.id.in_(ids)).order_by(columna))) if ids else "Todos"
 
-    empresa = db.get(Empresa, alcance.empresa_id).nombre if alcance.empresa_id else "Todas"
+    empresa = (db.get(Empresa, alcance.empresa_id).nombre if alcance.empresa_id
+               else SIN_EMPRESA if alcance.sin_empresa else "Todas")
     return {
         "Empresa": empresa,
         "Clientes": nombres(Terminal, Terminal.identificador_terminal, alcance.terminal_ids),
@@ -135,10 +141,10 @@ class Agrupar(StrEnum):
 
 # Para cada agrupación: (columnas de identidad, columnas a mostrar como (clave, etiqueta, expresión))
 _GRUPOS = {
-    Agrupar.EMPRESA: ([Empresa.id], [("empresa", "Empresa", Empresa.nombre)]),
-    Agrupar.CLIENTE: ([Terminal.id], [("empresa", "Empresa", Empresa.nombre),
+    Agrupar.EMPRESA: ([Empresa.id], [("empresa", "Empresa", NOMBRE_EMPRESA)]),
+    Agrupar.CLIENTE: ([Terminal.id], [("empresa", "Empresa", NOMBRE_EMPRESA),
                                       ("cliente", "Cliente", Terminal.identificador_terminal)]),
-    Agrupar.PROYECTO: ([Proyecto.id], [("empresa", "Empresa", Empresa.nombre),
+    Agrupar.PROYECTO: ([Proyecto.id], [("empresa", "Empresa", NOMBRE_EMPRESA),
                                        ("cliente", "Cliente", Terminal.identificador_terminal),
                                        ("proyecto", "Proyecto", Proyecto.nombre)]),
     Agrupar.METODO_PAGO: ([MetodoPago.id], [("metodo_pago", "Método de pago", MetodoPago.nombre)]),
@@ -255,7 +261,7 @@ def _constructor_detalle(db: Session, titulo: str, parametros: dict[str, Any], e
     lineas: list[tuple[tuple, dict[str, Any]]] = []
     if entradas:
         stmt = entradas(
-            Mov.fecha_movimiento, Mov.fecha_captura, Empresa.nombre.label("empresa"),
+            Mov.fecha_movimiento, Mov.fecha_captura, NOMBRE_EMPRESA.label("empresa"),
             Terminal.identificador_terminal.label("cliente"), Proyecto.nombre.label("proyecto"),
             MetodoPago.nombre.label("metodo"), Mov.requiere_factura, Mov.monto_bruto, Mov.porcentaje_aplicado,
             Mov.monto_neto, Mov.observaciones, NOMBRE_USUARIO.label("registro"),
@@ -270,7 +276,7 @@ def _constructor_detalle(db: Session, titulo: str, parametros: dict[str, Any], e
             }))
     if salidas:
         stmt = salidas(
-            Salida.fecha, Salida.fecha_registro, Empresa.nombre.label("empresa"),
+            Salida.fecha, Salida.fecha_registro, NOMBRE_EMPRESA.label("empresa"),
             Terminal.identificador_terminal.label("cliente"), Proyecto.nombre.label("proyecto"),
             MetodoPago.nombre.label("metodo"), Salida.monto, Salida.destino, NOMBRE_USUARIO.label("registro"),
         ).join(MetodoPago, Salida.metodo_pago_id == MetodoPago.id).join(Usuario, Salida.usuario_id == Usuario.id)
@@ -347,9 +353,10 @@ def estado_cuenta(db: Session, usuario: Usuario, *, alcance: Alcance, desde: dat
 
     total_ingresos = sum((f["ingreso"] or CERO for f in filas), CERO)
     total_salidas = sum((f["salida"] or CERO for f in filas), CERO)
-    empresa = db.get(Empresa, alcance.empresa_id) if alcance.empresa_id else None
+    nombre = (db.get(Empresa, alcance.empresa_id).nombre if alcance.empresa_id
+              else SIN_EMPRESA if alcance.sin_empresa else None)
     return Reporte(
-        titulo=f"Estado de cuenta — {empresa.nombre}" if empresa else "Estado de cuenta",
+        titulo=f"Estado de cuenta — {nombre}" if nombre else "Estado de cuenta",
         columnas=[("fecha", "Fecha"), ("tipo", "Tipo"), ("cliente", "Cliente"), ("proyecto", "Proyecto"),
                   ("metodo_pago", "Método de pago"), ("concepto", "Concepto"), ("ingreso", "Entrada neta"),
                   ("salida", "Salida"), ("saldo", "Saldo")],
@@ -412,7 +419,7 @@ def auditoria_por_contador(db: Session, usuario_id, desde, hasta) -> Reporte:
 def conciliacion_diaria(db: Session, usuario: Usuario, fecha: date, alcance: Alcance) -> Reporte:
     stmt = alcance.aplicar(_movs(
         usuario,
-        Empresa.nombre.label("empresa"),
+        NOMBRE_EMPRESA.label("empresa"),
         Terminal.identificador_terminal.label("cliente"),
         Proyecto.nombre.label("proyecto"),
         func.count(Mov.id).label("movimientos"),
@@ -420,8 +427,8 @@ def conciliacion_diaria(db: Session, usuario: Usuario, fecha: date, alcance: Alc
         func.sum(COMISION).label("comision"),
         func.sum(Mov.monto_neto).label("monto_neto"),
     ), Mov.metodo_pago_id).where(Mov.fecha_movimiento == fecha).group_by(
-        Empresa.nombre, Terminal.id, Proyecto.id
-    ).order_by(Empresa.nombre, Terminal.identificador_terminal, Proyecto.nombre)
+        NOMBRE_EMPRESA, Terminal.id, Proyecto.id
+    ).order_by(NOMBRE_EMPRESA, Terminal.identificador_terminal, Proyecto.nombre)
     filas = [
         {**r._asdict(), "monto_bruto": _dec(r.monto_bruto), "comision": _dec(r.comision), "monto_neto": _dec(r.monto_neto)}
         for r in db.execute(stmt)
@@ -439,26 +446,29 @@ def conciliacion_diaria(db: Session, usuario: Usuario, fecha: date, alcance: Alc
 
 
 # ---------------------------------------- Resumen mensual por empresa (admin)
-def resumen_mensual(db: Session, usuario: Usuario, anio: int, mes: int | None, empresa_id=None) -> Reporte:
+def resumen_mensual(db: Session, usuario: Usuario, anio: int, mes: int | None, empresa_id=None,
+                    sin_empresa: bool = False) -> Reporte:
     mes_mov = func.extract("month", Mov.fecha_movimiento)
     stmt = _movs(
         usuario,
         Empresa.id,
-        Empresa.nombre,
+        NOMBRE_EMPRESA.label("nombre"),
         mes_mov.label("mes"),
         func.sum(Mov.monto_bruto).label("bruto"),
         func.sum(COMISION).label("comision"),
         func.sum(Mov.monto_neto).label("neto"),
-    ).where(func.extract("year", Mov.fecha_movimiento) == anio).group_by(Empresa.id, Empresa.nombre, mes_mov)
+    ).where(func.extract("year", Mov.fecha_movimiento) == anio).group_by(Empresa.id, NOMBRE_EMPRESA, mes_mov)
 
     mes_sal = func.extract("month", Salida.fecha)
     stmt_sal = _sals(
-        usuario, Empresa.id, Empresa.nombre, mes_sal.label("mes"), func.sum(Salida.monto).label("salidas")
-    ).where(func.extract("year", Salida.fecha) == anio).group_by(Empresa.id, Empresa.nombre, mes_sal)
+        usuario, Empresa.id, NOMBRE_EMPRESA.label("nombre"), mes_sal.label("mes"), func.sum(Salida.monto).label("salidas")
+    ).where(func.extract("year", Salida.fecha) == anio).group_by(Empresa.id, NOMBRE_EMPRESA, mes_sal)
     if mes:
         stmt, stmt_sal = stmt.where(mes_mov == mes), stmt_sal.where(mes_sal == mes)
     if empresa_id:
         stmt, stmt_sal = stmt.where(Empresa.id == empresa_id), stmt_sal.where(Empresa.id == empresa_id)
+    if sin_empresa:
+        stmt, stmt_sal = stmt.where(Terminal.empresa_id.is_(None)), stmt_sal.where(Terminal.empresa_id.is_(None))
 
     acumulado: dict[tuple, dict[str, Any]] = defaultdict(
         lambda: {"ingresos_brutos": CERO, "comisiones": CERO, "ingresos_netos": CERO, "salidas": CERO}
@@ -480,7 +490,7 @@ def resumen_mensual(db: Session, usuario: Usuario, anio: int, mes: int | None, e
                   ("flujo_neto", "Flujo neto")],
         filas=filas,
         totales=_sumar(filas, "ingresos_brutos", "comisiones", "ingresos_netos", "salidas", "flujo_neto"),
-        parametros={"anio": anio, "mes": mes, "empresa_id": empresa_id},
+        parametros={"anio": anio, "mes": mes, "empresa_id": empresa_id, "sin_empresa": sin_empresa or None},
     )
 
 
@@ -550,11 +560,27 @@ def saldos_empresas(db: Session, usuario: Usuario, al_dia: date) -> Reporte:
         .order_by(Empresa.nombre),
         usuario,
     )
-    filas = []
-    for r in db.execute(stmt):
-        bruto, neto, sal = _dec(r.bruto), _dec(r.neto), _dec(r.salidas)
-        filas.append({"empresa": r.empresa, "ingresos_brutos": bruto, "comisiones": bruto - neto,
+    filas: list[dict[str, Any]] = []
+
+    def agregar(nombre, bruto, neto, sal):
+        bruto, neto, sal = _dec(bruto), _dec(neto), _dec(sal)
+        filas.append({"empresa": nombre, "ingresos_brutos": bruto, "comisiones": bruto - neto,
                       "ingresos_netos": neto, "salidas": sal, "saldo": neto - sal})
+
+    for r in db.execute(stmt):
+        agregar(r.empresa, r.bruto, r.neto, r.salidas)
+
+    # Clientes sin empresa: una fila «Sin empresa» (solo si existen), para que los totales cuadren.
+    hay_sin_empresa = db.scalar(clientes_propios(
+        select(func.count()).select_from(Terminal).where(Terminal.empresa_id.is_(None)), usuario))
+    if hay_sin_empresa:
+        bruto, neto = db.execute(
+            _movs(usuario, func.coalesce(func.sum(Mov.monto_bruto), 0), func.coalesce(func.sum(Mov.monto_neto), 0))
+            .where(Terminal.empresa_id.is_(None), Mov.fecha_movimiento <= al_dia)
+        ).one()
+        sal = db.scalar(_sals(usuario, func.coalesce(func.sum(Salida.monto), 0))
+                        .where(Terminal.empresa_id.is_(None), Salida.fecha <= al_dia))
+        agregar(SIN_EMPRESA, bruto, neto, sal)
     return Reporte(
         titulo=f"Saldos de empresas al {al_dia.isoformat()}",
         columnas=[("empresa", "Empresa"), ("ingresos_brutos", "Entradas brutas"), ("comisiones", "Comisiones"),

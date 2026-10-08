@@ -23,8 +23,10 @@ def crear_empresa(client, h, nombre="Empresa Uno", **extra):
     return r.json()
 
 
-def crear_cliente(client, h, empresa_id, ident="T-001"):
-    r = client.post("/terminales", json={"empresa_id": empresa_id, "identificador_terminal": ident}, headers=h)
+def crear_cliente(client, h, empresa_id=None, ident="T-001", **extra):
+    """Sin empresa_id, el cliente queda sin empresa."""
+    datos = {"empresa_id": empresa_id, "identificador_terminal": ident, **extra}
+    r = client.post("/terminales", json=datos, headers=h)
     assert r.status_code == 201, r.text
     return r.json()
 

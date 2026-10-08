@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../auth/AuthContext";
 import { api } from "./api";
+import { filtroEmpresa } from "./empresa";
 import type { Empresa, MetodoPago, Pagina, Proyecto, Terminal, Usuario } from "./types";
 
 // Catálogos que se usan en filtros y selectores. El backend permite hasta 500 por página.
@@ -14,24 +15,24 @@ export function useEmpresasCatalogo() {
   });
 }
 
-/** Clientes (terminales), opcionalmente de una sola empresa. */
+/** Clientes (terminales), opcionalmente de una sola empresa (o "sin" = sin empresa). */
 export function useTerminalesCatalogo(empresaId?: string) {
   return useQuery({
     queryKey: ["terminales", "catalogo", empresaId ?? "todas"],
-    queryFn: () => api.get<Pagina<Terminal>>("/terminales", { limit: 500, empresa_id: empresaId }),
+    queryFn: () => api.get<Pagina<Terminal>>("/terminales", { limit: 500, ...filtroEmpresa(empresaId) }),
     select: (p) => p.items,
     staleTime: 60_000,
   });
 }
 
-/** Proyectos, opcionalmente de una empresa o de un cliente. */
+/** Proyectos, opcionalmente de una empresa (o "sin" = sin empresa) o de un cliente. */
 export function useProyectosCatalogo(filtro: { empresaId?: string; terminalId?: string } = {}) {
   return useQuery({
     queryKey: ["proyectos", "catalogo", filtro.empresaId ?? "", filtro.terminalId ?? ""],
     queryFn: () =>
       api.get<Pagina<Proyecto>>("/proyectos", {
         limit: 500,
-        empresa_id: filtro.empresaId || undefined,
+        ...filtroEmpresa(filtro.empresaId),
         terminal_id: filtro.terminalId || undefined,
       }),
     select: (p) => p.items,

@@ -10,10 +10,10 @@ from app.api.deps import DB, PaginacionDep, UsuarioActual
 from app.api.utils import cambios_no_nulos, paginar, validar_no_futura
 from app.core.errors import ReglaNegocio
 from app.core.tiempo import hoy
-from app.models import AccionBitacora, Empresa, Proyecto, Salida, TerminalBancaria
+from app.models import AccionBitacora, Proyecto, Salida, TerminalBancaria
 from app.schemas.comun import Pagina
 from app.schemas.salida import SalidaActualizar, SalidaCrear, SalidaOut, SalidaRegistrada
-from app.services.acceso import obtener_proyecto, obtener_salida, solo_propias, unir_jerarquia
+from app.services.acceso import clientes_propios, filtrar_empresa, mismo_grupo, obtener_proyecto, obtener_salida, unir_jerarquia
 from app.services.bitacora import instantanea, registrar
 from app.services.metodos_pago import validar_metodo_pago
 from app.services.reportes import escapar_like, validar_rango
@@ -27,7 +27,7 @@ CAMPOS = ("proyecto_id", "monto", "destino", "fecha", "metodo_pago_id", "observa
 def _con_saldo(db: Session, salida: Salida) -> SalidaRegistrada:
     """El sistema es un control paralelo: no bloquea salidas, pero advierte si el saldo del proyecto queda negativo."""
     saldo_proyecto = totales(db, proyecto_id=salida.proyecto_id).saldo
-    saldo_empresa = totales(db, empresa_id=salida.empresa_id).saldo
+    saldo_empresa = totales(db, empresa_id=salida.empresa_id).saldo if salida.empresa_id else None
     advertencia = None
     if saldo_proyecto < 0:
         advertencia = (f"El saldo del proyecto quedó negativo ({saldo_proyecto:,.2f}). "
@@ -38,18 +38,17 @@ def _con_saldo(db: Session, salida: Salida) -> SalidaRegistrada:
 
 @router.get("", response_model=Pagina[SalidaOut])
 def listar(db: DB, usuario: UsuarioActual, pag: PaginacionDep, empresa_id: uuid.UUID | None = None,
-           terminal_id: uuid.UUID | None = None, proyecto_id: uuid.UUID | None = None,
+           sin_empresa: bool | None = None, terminal_id: uuid.UUID | None = None, proyecto_id: uuid.UUID | None = None,
            metodo_pago_id: uuid.UUID | None = None, desde: date | None = None, hasta: date | None = None,
            texto: Annotated[str | None, Query(max_length=100, description="Búsqueda en destino")] = None):
     validar_rango(desde, hasta)
-    stmt = solo_propias(
+    stmt = clientes_propios(
         unir_jerarquia(select(Salida), Salida.proyecto_id).options(
             joinedload(Salida.proyecto).joinedload(Proyecto.terminal)
         ),
         usuario,
     ).order_by(Salida.fecha.desc(), Salida.fecha_registro.desc())
-    if empresa_id:
-        stmt = stmt.where(Empresa.id == empresa_id)
+    stmt = filtrar_empresa(stmt, empresa_id, sin_empresa)
     if terminal_id:
         stmt = stmt.where(TerminalBancaria.id == terminal_id)
     if proyecto_id:
@@ -96,8 +95,9 @@ def corregir(salida_id: uuid.UUID, datos: SalidaActualizar, db: DB, usuario: Usu
                                {"proyecto_id", "monto", "destino", "fecha", "metodo_pago_id"})
     if "proyecto_id" in cambios and cambios["proyecto_id"] != salida.proyecto_id:
         destino = obtener_proyecto(db, usuario, cambios["proyecto_id"])
-        if destino.terminal.empresa_id != salida.empresa_id:
-            raise ReglaNegocio("Solo se puede mover la salida a otro proyecto de la misma empresa")
+        if not mismo_grupo(destino.terminal, salida.proyecto.terminal):
+            raise ReglaNegocio("Solo se puede mover la salida a otro proyecto de la misma empresa "
+                               "(o del mismo cliente, si no tiene empresa)")
         if not destino.activo:
             raise ReglaNegocio("El proyecto destino está inactivo")
     if "fecha" in cambios:

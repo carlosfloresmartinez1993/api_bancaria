@@ -17,6 +17,8 @@ class AccionBitacora(StrEnum):
     ACTIVAR = "ACTIVAR"
     DESACTIVAR = "DESACTIVAR"
     REASIGNAR_EMPRESA = "REASIGNAR_EMPRESA"
+    MOVER_CLIENTE = "MOVER_CLIENTE"  # asociar un cliente a una empresa, quitárselo o revertirlo
+    REASIGNAR_CLIENTE = "REASIGNAR_CLIENTE"  # cambiar el responsable de un cliente sin empresa
     CAMBIO_PORCENTAJE = "CAMBIO_PORCENTAJE"
     EDITAR_MOVIMIENTO = "EDITAR_MOVIMIENTO"
     ELIMINAR_MOVIMIENTO = "ELIMINAR_MOVIMIENTO"

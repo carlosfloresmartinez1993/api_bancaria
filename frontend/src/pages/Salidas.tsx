@@ -22,6 +22,7 @@ import {
 } from "../components/ui";
 import { api } from "../lib/api";
 import { fecha } from "../lib/format";
+import { filtroEmpresa, nombreEmpresa, SIN_EMPRESA } from "../lib/empresa";
 import { useFiltros } from "../lib/filtros";
 import { useInvalidarDinero } from "../lib/invalidar";
 import { useNombresEmpresa, useNombresMetodoPago, useNombresProyecto, useNombresTerminal } from "../lib/queries";
@@ -65,7 +66,7 @@ export default function Salidas() {
 
   const { data, isLoading, error, isFetching } = useQuery({
     queryKey: ["salidas", filtros, offset],
-    queryFn: () => api.get<Pagina<Salida>>("/salidas", { ...filtros, limit: LIMITE, offset }),
+    queryFn: () => api.get<Pagina<Salida>>("/salidas", { ...filtros, empresa_id: undefined, ...filtroEmpresa(filtros.empresa_id), limit: LIMITE, offset }),
     placeholderData: keepPreviousData,
   });
 
@@ -73,7 +74,7 @@ export default function Salidas() {
     ? { ruta: `/proyectos/${filtros.proyecto_id}/saldo`, etiqueta: `Proyecto ${nombresProyecto.get(filtros.proyecto_id) ?? ""}` }
     : filtros.terminal_id
       ? { ruta: `/terminales/${filtros.terminal_id}/saldo`, etiqueta: `Cliente ${nombresCliente.get(filtros.terminal_id) ?? ""}` }
-      : filtros.empresa_id
+      : filtros.empresa_id && filtros.empresa_id !== SIN_EMPRESA
         ? { ruta: `/empresas/${filtros.empresa_id}/saldo`, etiqueta: nombresEmpresa.get(filtros.empresa_id) ?? "Empresa" }
         : null;
 
@@ -94,7 +95,7 @@ export default function Salidas() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Campo etiqueta="Empresa">
             {(id) => (
-              <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas"
+              <SelectorEmpresa id={id} valor={filtros.empresa_id} vacio="Todas" conSinEmpresa
                 onCambiar={(v) => cambiar({ empresa_id: v, terminal_id: "", proyecto_id: "" })} />
             )}
           </Campo>
@@ -161,7 +162,7 @@ export default function Salidas() {
                   <tr key={s.id} className="hover:bg-slate-50">
                     <Td className="whitespace-nowrap">{fecha(s.fecha)}</Td>
                     <Td>
-                      <p className="font-medium text-slate-900">{nombresEmpresa.get(s.empresa_id) ?? "—"}</p>
+                      <p className="font-medium text-slate-900">{nombreEmpresa(nombresEmpresa, s.empresa_id)}</p>
                       <p className="text-xs text-slate-500">
                         {nombresCliente.get(s.terminal_id) ?? "—"} · {nombresProyecto.get(s.proyecto_id) ?? "—"}
                       </p>

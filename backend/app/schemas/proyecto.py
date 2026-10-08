@@ -23,7 +23,7 @@ class ProyectoActualizar(BaseModel):
 class ProyectoOut(ORMModel):
     id: uuid.UUID
     terminal_id: uuid.UUID
-    empresa_id: uuid.UUID
+    empresa_id: uuid.UUID | None
     nombre: str
     activo: bool
     fecha_registro: datetime

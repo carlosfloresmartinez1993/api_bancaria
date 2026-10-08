@@ -8,6 +8,7 @@ import { CapturarMovimiento } from "../components/formularios/MovimientoForm";
 import { RegistrarSalida } from "../components/formularios/SalidaForm";
 import { Boton, Cargando, EncabezadoPagina, ErrorApi, Insignia, Monto, Tabla, Tarjeta, Td, Th, Vacio } from "../components/ui";
 import { api } from "../lib/api";
+import { nombreEmpresa } from "../lib/empresa";
 import { dinero, fecha, hoyISO, porcentaje } from "../lib/format";
 import { useNombresEmpresa, useNombresProyecto, useNombresTerminal } from "../lib/queries";
 import type { Movimiento, Pagina, Reporte } from "../lib/types";
@@ -157,7 +158,7 @@ export default function Inicio() {
                 <li key={m.id} className="flex items-center justify-between gap-4 px-5 py-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-900">
-                      {nombresEmpresa.get(m.empresa_id) ?? "Empresa"}
+                      {nombreEmpresa(nombresEmpresa, m.empresa_id)}
                     </p>
                     <p className="truncate text-xs text-slate-500">
                       {fecha(m.fecha_movimiento)} · {nombresCliente.get(m.terminal_id) ?? "Cliente"} ·{" "}
